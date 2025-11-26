@@ -25,7 +25,6 @@ import FolderNodeComponent from './FolderNode';
 import AreaGroup from './AreaGroup';
 import dagre from 'dagre';
 
-// Custom node types
 const nodeTypes: NodeTypes = {
   folderNode: FolderNodeComponent,
 };
@@ -59,7 +58,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     [highlightedNodeIds]
   );
 
-  // Convert store nodes to ReactFlow format
   useEffect(() => {
     if (storeNodes.length === 0) {
       setNodesState([]);
@@ -75,7 +73,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     setEdgesState(rfEdges);
   }, [storeNodes, highlightedSet, setNodesState, setEdgesState]);
 
-  // Apply auto layout using Dagre
   const applyAutoLayout = useCallback(() => {
     if (nodes.length === 0) return;
 
@@ -117,7 +114,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
 
     setNodesState(layoutedNodes);
 
-    // Update store with new positions
     layoutedNodes.forEach((node) => {
       updateNodePosition(node.id, node.position);
     });
@@ -125,7 +121,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     setTimeout(() => fitView({ padding: 0.2 }), 120);
   }, [nodes, edges, setNodesState, updateNodePosition, fitView]);
 
-  // Apply auto layout when layout mode changes or nodes are loaded
   useEffect(() => {
     if (layoutMode === 'auto' && nodes.length > 0 && edges.length > 0) {
       const timer = setTimeout(() => {
@@ -141,7 +136,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     applyAutoLayout,
   ]);
 
-  // Handle node drag end (save position in freeflow mode)
   const onNodeDragStop = useCallback(
     (_: React.MouseEvent, node: Node) => {
       if (layoutMode === 'freeflow') {
@@ -151,7 +145,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     [layoutMode, updateNodePosition]
   );
 
-  // Handle node click (open folder)
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
       setSelectedNodeId(node.id);
@@ -159,7 +152,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     [setSelectedNodeId]
   );
 
-  // Handle node double click to open folder (view mode only)
   const onNodeDoubleClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
       if (viewMode !== 'view') {
@@ -178,7 +170,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     [viewMode]
   );
 
-  // Handle connection creation
   const onConnect = useCallback(
     (params: Connection) => {
       setEdgesState((eds) => addEdge(params, eds));
@@ -186,7 +177,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     [setEdgesState]
   );
 
-  // Handle viewport changes
   const onMove = useCallback(
     (_: React.MouseEvent | null, viewport: Viewport) => {
       setPan({ x: viewport.x, y: viewport.y });
@@ -195,12 +185,10 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     [setPan, setZoom]
   );
 
-  // Handle area zoom
   const handleZoomToArea = useCallback(
     (area: Area) => {
       setSelectedAreaId(area.id);
       
-      // Calculate bounding box of area nodes
       const areaNodes = nodes.filter((node) => area.nodes.includes(node.id));
       if (areaNodes.length === 0) return;
 
@@ -211,10 +199,9 @@ function FlowCanvas({ className }: FolderCanvasProps) {
 
       const centerX = (minX + maxX) / 2;
       const centerY = (minY + maxY) / 2;
-      const width = maxX - minX + 400; // Add padding
+      const width = maxX - minX + 400;
       const height = maxY - minY + 400;
 
-      // Zoom to area
       fitView({
         x: centerX - width / 2,
         y: centerY - height / 2,
@@ -321,4 +308,3 @@ export default function FolderCanvas({ className }: FolderCanvasProps) {
     </ReactFlowProvider>
   );
 }
-

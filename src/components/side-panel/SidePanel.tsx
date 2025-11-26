@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { SearchIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { SearchIcon, ChevronLeft, ChevronRight, CornerDownLeft } from 'lucide-react';
 import { useFlowStore } from '@/store/useFlowStore';
 
 const connectors = [
@@ -23,6 +23,12 @@ export default function SidePanel() {
   const setActiveConnector = useFlowStore((state) => state.setActiveConnector);
   const isCollapsed = useFlowStore((state) => state.isSidebarCollapsed);
   const toggleSidebar = useFlowStore((state) => state.toggleSidebar);
+  const searchMatches = useFlowStore((state) => state.searchMatches);
+  const activeSearchIndex = useFlowStore((state) => state.activeSearchIndex);
+  const selectNextMatch = useFlowStore((state) => state.selectNextSearchMatch);
+  const selectPrevMatch = useFlowStore((state) => state.selectPrevSearchMatch);
+  const focusSearchMatch = useFlowStore((state) => state.focusSearchMatch);
+  const searchLoading = useFlowStore((state) => state.searchLoading);
 
   return (
     <aside
@@ -67,6 +73,22 @@ export default function SidePanel() {
               <input
                 value={searchQuery}
                 onChange={(e) => applySearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    selectNextMatch();
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    selectPrevMatch();
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    focusSearchMatch();
+                  } else if (e.key === 'Escape') {
+                    if (searchQuery) {
+                      applySearchQuery('');
+                    }
+                  }
+                }}
                 placeholder="Jump to folder..."
                 className="w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/70 px-11 py-3 text-sm text-[var(--color-text)] outline-none transition focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/30"
               />
@@ -75,6 +97,44 @@ export default function SidePanel() {
             <p className="mt-2 text-xs text-[var(--color-text-muted)]">
               Type to auto-expand branches and spotlight matches.
             </p>
+            {searchQuery.trim() && (
+              <div className="mt-3 max-h-56 overflow-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/90 shadow-xl">
+                {searchLoading ? (
+                  <div className="px-4 py-3 text-xs text-[var(--color-text-muted)]">
+                    Searching...
+                  </div>
+                ) : searchMatches.length > 0 ? (
+                  searchMatches.map((match, idx) => (
+                    <button
+                      key={match.id}
+                      onClick={() => focusSearchMatch(idx)}
+                      className={`flex w-full flex-col items-start gap-1 border-b border-[var(--color-border)]/40 px-4 py-3 text-left ${
+                        activeSearchIndex === idx
+                          ? 'bg-[var(--color-highlight)]/40 text-[var(--color-accent)]'
+                          : 'hover:bg-[var(--color-highlight)]/30'
+                      }`}
+                    >
+                      <span className="text-sm font-semibold text-[var(--color-text)]">
+                        {match.name}
+                      </span>
+                      <span className="text-xs text-[var(--color-text-muted)]">
+                        {match.path}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-4 py-3 text-xs text-[var(--color-text-muted)]">
+                    No matches yet
+                  </div>
+                )}
+              </div>
+            )}
+            {searchQuery.trim() && (
+              <p className="mt-2 flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+                <CornerDownLeft className="h-3 w-3" />
+                Enter to jump • Esc to clear • ↑↓ to navigate
+              </p>
+            )}
           </div>
 
           <div>
@@ -127,4 +187,3 @@ export default function SidePanel() {
     </aside>
   );
 }
-

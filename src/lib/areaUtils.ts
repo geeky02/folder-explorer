@@ -12,14 +12,13 @@ export function createAreaFromNode(
 ): Area {
   const allNodeIds = getAllDescendantIds(node);
   
-  // Calculate bounding box (will be updated when nodes are positioned)
   return {
     id: areaId,
     name: node.name,
     nodes: allNodeIds,
     color,
     position: node.position,
-    size: { width: 400, height: 300 }, // Default size, will be recalculated
+    size: { width: 400, height: 300 },
   };
 }
 
@@ -63,8 +62,8 @@ export function calculateAreaBounds(
       y: minY - 20,
     },
     size: {
-      width: maxX - minX + 240, // Add padding and node width
-      height: maxY - minY + 120, // Add padding and node height
+      width: maxX - minX + 240,
+      height: maxY - minY + 120,
     },
   };
 }

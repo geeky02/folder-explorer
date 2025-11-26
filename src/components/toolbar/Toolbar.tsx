@@ -1,26 +1,37 @@
 'use client';
 
-import React from 'react';
-import { Sparkles, RefreshCw, MoonStar, SunMedium } from 'lucide-react';
+import React, { useState } from 'react';
+import { Sparkles, RefreshCw, MoonStar, SunMedium, Save, ChevronDown, Trash2 } from 'lucide-react';
 import { useFlowStore } from '@/store/useFlowStore';
 
 export default function Toolbar() {
-  const {
-    layoutMode,
-    viewMode,
-    setLayoutMode,
-    setViewMode,
-    selectedNodeId,
-    selectedAreaId,
-    updateNodeColor,
-    updateNodeIcon,
-    updateAreaColor,
-    expandAllNodes,
-    collapseAllNodes,
-    refreshLayout,
-    theme,
-    toggleTheme,
-  } = useFlowStore();
+  const layoutMode = useFlowStore((state) => state.layoutMode);
+  const viewMode = useFlowStore((state) => state.viewMode);
+  const setLayoutMode = useFlowStore((state) => state.setLayoutMode);
+  const setViewMode = useFlowStore((state) => state.setViewMode);
+  const selectedNodeId = useFlowStore((state) => state.selectedNodeId);
+  const selectedAreaId = useFlowStore((state) => state.selectedAreaId);
+  const updateNodeColor = useFlowStore((state) => state.updateNodeColor);
+  const updateNodeIcon = useFlowStore((state) => state.updateNodeIcon);
+  const updateAreaColor = useFlowStore((state) => state.updateAreaColor);
+  const expandAllNodes = useFlowStore((state) => state.expandAllNodes);
+  const collapseAllNodes = useFlowStore((state) => state.collapseAllNodes);
+  const refreshLayout = useFlowStore((state) => state.refreshLayout);
+  const theme = useFlowStore((state) => state.theme);
+  const toggleTheme = useFlowStore((state) => state.toggleTheme);
+  const savedLayouts = useFlowStore((state) => state.savedLayouts);
+  const activeLayoutId = useFlowStore((state) => state.activeLayoutId);
+  const saveLayout = useFlowStore((state) => state.saveLayout);
+  const loadLayout = useFlowStore((state) => state.loadLayout);
+  const deleteLayout = useFlowStore((state) => state.deleteLayout);
+  const activeLayout = savedLayouts.find((layout) => layout.id === activeLayoutId) || null;
+  const formatLayoutLabel = (layout: (typeof savedLayouts)[number]) => {
+    const updatedAt = new Date(layout.updatedAt);
+    return `${layout.name} • ${updatedAt.toLocaleString()}`;
+  };
+
+  const [isSavingLayout, setIsSavingLayout] = useState(false);
+  const [layoutName, setLayoutName] = useState('');
 
   const colors = [
     '#e0e0e0',
@@ -52,6 +63,15 @@ export default function Toolbar() {
     if (selectedAreaId) {
       updateAreaColor(selectedAreaId, color);
     }
+  };
+
+  const handleSaveLayout = async () => {
+    if (!layoutName.trim()) {
+      return;
+    }
+    await saveLayout(layoutName.trim());
+    setLayoutName('');
+    setIsSavingLayout(false);
   };
 
   return (
@@ -110,18 +130,99 @@ export default function Toolbar() {
         >
           Freeflow
         </button>
-        <button
-          onClick={refreshLayout}
-          className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-text-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Re-run layout
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={refreshLayout}
+            className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-text-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Re-run layout
+          </button>
+          <div className="relative">
+            <button
+              onClick={() => setIsSavingLayout((prev) => !prev)}
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-text)] hover:border-[var(--color-accent)]"
+            >
+              <Save className="h-4 w-4" />
+              Save layout
+              <ChevronDown className="h-3 w-3" />
+            </button>
+            {isSavingLayout && (
+              <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-2xl">
+                <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-text-muted)]">
+                  Save layout
+                </p>
+                <input
+                  value={layoutName}
+                  onChange={(e) => setLayoutName(e.target.value)}
+                  placeholder="Layout name"
+                  className="mt-2 w-full rounded-xl border border-[var(--color-border)] bg-transparent px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                />
+                <div className="mt-3 flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      setIsSavingLayout(false);
+                      setLayoutName('');
+                    }}
+                    className="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveLayout}
+                    className="rounded-full bg-[var(--color-accent)] px-3 py-1 text-sm font-medium text-[#031527] hover:bg-[var(--color-accent-strong)]"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {savedLayouts.length > 0 && (
+            <div className="relative">
+              <select
+                value={activeLayoutId ?? ''}
+                onChange={(e) => {
+                  const layoutId = e.target.value;
+                  if (!layoutId) return;
+                  if (layoutId === '__auto__') {
+                    setLayoutMode('auto');
+                    refreshLayout();
+                    return;
+                  }
+                  loadLayout(layoutId);
+                }}
+                className="rounded-full border border-[var(--color-border)] bg-transparent px-3 py-1.5 text-sm text-[var(--color-text)]"
+              >
+                <option value="__auto__">Auto layout</option>
+                {savedLayouts.map((layout) => (
+                  <option key={layout.id} value={layout.id}>
+                    {formatLayoutLabel(layout)}
+                  </option>
+                ))}
+              </select>
+              {activeLayoutId && (
+                <button
+                  onClick={() => deleteLayout(activeLayoutId)}
+                  className="absolute -right-8 top-1/2 -translate-y-1/2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] p-1 text-[var(--color-text-muted)] hover:text-rose-400"
+                  title="Delete layout"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+              {activeLayout && (
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                  Saved {new Date(activeLayout.updatedAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="h-6 w-px bg-[var(--color-border)]" />
 
-      {/* Tree actions */}
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium text-[var(--color-text-muted)]">
           Tree actions:
@@ -163,7 +264,6 @@ export default function Toolbar() {
         <>
           <div className="h-6 w-px bg-[var(--color-border)]" />
 
-          {/* Color Picker */}
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-[var(--color-text-muted)]">
               Node color:
@@ -181,7 +281,6 @@ export default function Toolbar() {
             </div>
           </div>
 
-          {/* Icon Picker */}
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-[var(--color-text-muted)]">
               Node icon:
@@ -233,4 +332,3 @@ export default function Toolbar() {
     </div>
   );
 }
-

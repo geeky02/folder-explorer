@@ -1,6 +1,12 @@
 // API client for backend communication
 
-import { LayoutData } from './types';
+import {
+  LayoutData,
+  SavedLayout,
+  LayoutMode,
+  EverythingListResponse,
+  EverythingSearchResponse,
+} from './types';
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -27,6 +33,48 @@ export async function fetchDirectory(
     throw new Error('Failed to fetch directory structure');
   }
   return (await response.json()) as DirectoryResponse;
+}
+
+export async function listEverythingChildren(
+  path?: string,
+  limit?: number
+): Promise<EverythingListResponse> {
+  const params = new URLSearchParams();
+  if (path) {
+    params.set('path', path);
+  }
+  if (typeof limit === 'number') {
+    params.set('limit', String(limit));
+  }
+
+  const url = `${API_BASE_URL}/connectors/everything/list${
+    params.toString() ? `?${params.toString()}` : ''
+  }`;
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to list Everything folder');
+  }
+  return (await response.json()) as EverythingListResponse;
+}
+
+export async function searchEverything(
+  query: string,
+  limit?: number
+): Promise<EverythingSearchResponse> {
+  const params = new URLSearchParams();
+  params.set('q', query);
+  if (typeof limit === 'number') {
+    params.set('limit', String(limit));
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/connectors/everything/search?${params.toString()}`
+  );
+  if (!response.ok) {
+    throw new Error('Failed to search Everything');
+  }
+  return (await response.json()) as EverythingSearchResponse;
 }
 
 export async function saveLayout(data: LayoutData): Promise<void> {
@@ -71,3 +119,44 @@ export async function getStarredFiles(): Promise<unknown[]> {
   return (await response.json()) as unknown[];
 }
 
+export async function fetchLayouts(): Promise<SavedLayout[]> {
+  const response = await fetch(`${API_BASE_URL}/layouts`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch layouts');
+  }
+  return (await response.json()) as SavedLayout[];
+}
+
+export async function createLayout(payload: {
+  name: string;
+  mode: LayoutMode;
+  nodes: LayoutData['nodes'];
+  areas: LayoutData['areas'];
+}): Promise<SavedLayout> {
+  const response = await fetch(`${API_BASE_URL}/layouts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to create layout');
+  }
+  return (await response.json()) as SavedLayout;
+}
+
+export async function getLayout(layoutId: string): Promise<SavedLayout> {
+  const response = await fetch(`${API_BASE_URL}/layouts/${layoutId}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch layout');
+  }
+  return (await response.json()) as SavedLayout;
+}
+
+export async function deleteLayoutRequest(layoutId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/layouts/${layoutId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to delete layout');
+  }
+}

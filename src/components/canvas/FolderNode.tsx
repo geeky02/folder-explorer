@@ -180,4 +180,3 @@ function getIcon(iconName: string): string {
   };
   return icons[iconName] || icons.default;
 }
-
