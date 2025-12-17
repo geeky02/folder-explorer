@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, memo, useCallback } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { motion } from 'framer-motion';
 import { ChevronDown, ChevronRight } from 'lucide-react';
@@ -9,17 +9,15 @@ import ContextMenu from '../context-menu/ContextMenu';
 import { formatPath } from '@/lib/utils';
 import { FolderNodeVisualData } from '@/lib/types';
 
-export default function FolderNode({
+const FolderNode = memo(function FolderNode({
   data,
   id,
   selected,
 }: NodeProps<FolderNodeVisualData>) {
-  const {
-    viewMode,
-    toggleNodeExpanded,
-    setNodeExpanded,
-    setHighlightedNodeIds,
-  } = useFlowStore();
+  const viewMode = useFlowStore((state) => state.viewMode);
+  const toggleNodeExpanded = useFlowStore((state) => state.toggleNodeExpanded);
+  const setNodeExpanded = useFlowStore((state) => state.setNodeExpanded);
+  const setHighlightedNodeIds = useFlowStore((state) => state.setHighlightedNodeIds);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -42,97 +40,84 @@ export default function FolderNode({
     handleContextMenuClose();
   };
 
-  const handleToggle = (e?: React.MouseEvent) => {
+  const handleToggle = useCallback((e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!hasChildren) return;
     toggleNodeExpanded(id);
-  };
+  }, [hasChildren, toggleNodeExpanded, id]);
 
-  const handleOpenFolder = () => {
+  const handleOpenFolder = useCallback(() => {
     fetch('http://localhost:3001/open-folder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: data.path }),
     }).catch((err) => console.error('Failed to open folder:', err));
     handleContextMenuClose();
-  };
+  }, [data.path]);
 
-  const handleShare = () => {
+  const handleShare = useCallback(() => {
     navigator.clipboard.writeText(`Share placeholder -> ${data.path}`);
     handleContextMenuClose();
-  };
+  }, [data.path]);
 
-  const handleHighlight = () => {
+  const handleHighlight = useCallback(() => {
     setHighlightedNodeIds([id]);
     handleContextMenuClose();
-  };
+  }, [id, setHighlightedNodeIds]);
 
   return (
     <>
       <motion.div
-        layout
         onContextMenu={handleRightClick}
         onClick={() => hasChildren && toggleNodeExpanded(id)}
-        className={`group relative min-w-[200px] max-w-[260px] rounded-2xl border px-4 py-3 shadow-[0_20px_35px_rgba(2,6,23,0.45)] transition-all ${
+        className={`group relative w-[140px] rounded-lg border bg-white px-2.5 py-2 shadow-sm transition-all ${
           selected
-            ? 'border-[var(--color-accent)]'
-            : 'border-[var(--color-border)]'
+            ? 'border-[var(--color-accent)] shadow-md'
+            : 'border-gray-200'
         } ${
           data.isHighlighted
-            ? 'ring-2 ring-[var(--color-accent)]/70 ring-offset-2'
+            ? 'ring-2 ring-[var(--color-accent)]/70 ring-offset-1'
             : 'ring-0'
         }`}
         style={{
-          background: data.color
-            ? `linear-gradient(135deg, ${data.color} 0%, rgba(255,255,255,0.07) 100%)`
-            : 'var(--color-node-gradient)',
+          background: data.color || 'white',
         }}
       >
-        <Handle type="target" position={Position.Top} />
+        <Handle 
+          type="target" 
+          position={Position.Top}
+        />
 
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <div className="text-2xl leading-none drop-shadow">{getIcon(data.icon)}</div>
-            <div>
-              <p className="text-sm font-semibold text-[var(--color-text)]">
-                {data.label}
-              </p>
-              <p className="text-[11px] text-[var(--color-text-muted)]">
-                {formatPath(data.path)}
-              </p>
-            </div>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="text-base leading-none flex-shrink-0">{getIcon(data.icon)}</div>
+          <div className="min-w-0 flex-1">
+            <p 
+              className="text-xs font-medium truncate leading-tight"
+              style={{
+                color: data.color ? (isLightColor(data.color) ? '#1f2937' : '#ffffff') : '#1f2937'
+              }}
+            >
+              {data.label}
+            </p>
           </div>
           {hasChildren && (
             <button
               onClick={handleToggle}
-              className="rounded-full border border-slate-200 bg-white/70 p-1 text-slate-600 hover:bg-white shadow"
+              className="rounded border border-gray-200 bg-white p-0.5 text-gray-500 hover:bg-gray-50 flex-shrink-0 transition-colors"
             >
               {isCollapsed ? (
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-3 w-3" />
               ) : (
-                <ChevronDown className="h-4 w-4" />
+                <ChevronDown className="h-3 w-3" />
               )}
             </button>
           )}
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide text-slate-500">
-          {hasChildren && (
-            <span className="rounded-full bg-white/30 px-2 py-0.5 text-[var(--color-text)]">
-              {data.childCount} items
-            </span>
-          )}
-          <span className="rounded-full border border-dashed border-white/50 px-2 py-0.5 text-[var(--color-text)]">
-            Depth {data.depth ?? 0}
-          </span>
-          {viewMode === 'edit' && (
-            <span className="rounded-full border border-white/70 px-2 py-0.5 text-amber-300">
-              Edit mode
-            </span>
-          )}
-        </div>
-
-        <Handle type="source" position={Position.Bottom} />
+        <Handle 
+          type="source" 
+          position={Position.Bottom}
+        />
       </motion.div>
 
       {contextMenu && (
@@ -170,13 +155,47 @@ export default function FolderNode({
       )}
     </>
   );
-}
+});
+
+FolderNode.displayName = 'FolderNode';
+
+export default FolderNode;
 
 function getIcon(iconName: string): string {
+  // If iconName is already an emoji, return it directly
+  if (/[\u{1F300}-\u{1F9FF}]/u.test(iconName)) {
+    return iconName;
+  }
+  
+  // Map string keys to emoji icons
   const icons: Record<string, string> = {
     folder: '📁',
     file: '📄',
     default: '📂',
   };
-  return icons[iconName] || icons.default;
+  return icons[iconName] || icons.default || iconName;
 }
+
+// Helper function to determine if a color is light
+function isLightColor(color: string): boolean {
+  try {
+    // Remove # if present
+    const hex = color.replace('#', '');
+    
+    if (hex.length !== 6) return true; // Default to light if invalid
+    
+    // Convert to RGB
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    
+    // Calculate luminance
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    
+    // Return true if light (luminance > 0.5)
+    return luminance > 0.5;
+  } catch {
+    return true; // Default to light color on error
+  }
+}
+

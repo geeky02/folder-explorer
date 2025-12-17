@@ -41,3 +41,77 @@ body {
   font-family: var(--font-geist-sans), 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   transition: background 0.3s ease, color 0.3s ease;
 }
+
+/* Animated dashed edge for ReactFlow */
+@keyframes dashdraw {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+/* ReactFlow edge styles */
+.react-flow__edge-path {
+  animation: dashdraw 2s linear infinite;
+}
+
+/* ReactFlow handle styles - visible connection points */
+.react-flow__handle {
+  width: 6px !important;
+  height: 6px !important;
+  border: 1.5px solid white !important;
+  border-radius: 50% !important;
+  background: rgba(148, 163, 184, 0.5) !important;
+  transition: all 0.2s ease !important;
+}
+
+.react-flow__handle:hover {
+  background: rgba(148, 163, 184, 0.8) !important;
+  transform: scale(1.3);
+}
+
+.react-flow__handle-top {
+  top: -3px !important;
+}
+
+.react-flow__handle-bottom {
+  bottom: -3px !important;
+}
+
+/* Smooth node transitions - but not during drag */
+.react-flow__node {
+  transition: box-shadow 0.2s ease !important;
+}
+
+.react-flow__node.selected {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Smooth canvas interactions */
+.react-flow__pane {
+  cursor: grab;
+}
+
+.react-flow__pane.dragging {
+  cursor: grabbing;
+}
+
+/* Ensure smooth node dragging - no transitions during drag */
+.react-flow__node.dragging {
+  opacity: 0.9;
+  transition: none !important;
+}
+
+/* Better edge rendering - ensure edges update smoothly */
+.react-flow__edge {
+  pointer-events: none;
+  transition: none !important;
+}
+
+.react-flow__edge-path {
+  transition: none !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: rgba(37, 99, 235, 0.6);
+  stroke-width: 3;
+}

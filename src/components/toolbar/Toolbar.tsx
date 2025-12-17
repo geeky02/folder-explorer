@@ -1,13 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Sparkles, RefreshCw, MoonStar, SunMedium, Save, ChevronDown, Trash2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Sparkles, MoonStar, SunMedium, Save, ChevronDown, Trash2 } from 'lucide-react';
 import { useFlowStore } from '@/store/useFlowStore';
 
 export default function Toolbar() {
-  const layoutMode = useFlowStore((state) => state.layoutMode);
   const viewMode = useFlowStore((state) => state.viewMode);
-  const setLayoutMode = useFlowStore((state) => state.setLayoutMode);
   const setViewMode = useFlowStore((state) => state.setViewMode);
   const selectedNodeId = useFlowStore((state) => state.selectedNodeId);
   const selectedAreaId = useFlowStore((state) => state.selectedAreaId);
@@ -16,7 +14,6 @@ export default function Toolbar() {
   const updateAreaColor = useFlowStore((state) => state.updateAreaColor);
   const expandAllNodes = useFlowStore((state) => state.expandAllNodes);
   const collapseAllNodes = useFlowStore((state) => state.collapseAllNodes);
-  const refreshLayout = useFlowStore((state) => state.refreshLayout);
   const theme = useFlowStore((state) => state.theme);
   const toggleTheme = useFlowStore((state) => state.toggleTheme);
   const savedLayouts = useFlowStore((state) => state.savedLayouts);
@@ -32,6 +29,7 @@ export default function Toolbar() {
 
   const [isSavingLayout, setIsSavingLayout] = useState(false);
   const [layoutName, setLayoutName] = useState('');
+  const saveLayoutRef = useRef<HTMLDivElement>(null);
 
   const colors = [
     '#e0e0e0',
@@ -74,6 +72,24 @@ export default function Toolbar() {
     setIsSavingLayout(false);
   };
 
+  // Close modal when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (saveLayoutRef.current && !saveLayoutRef.current.contains(event.target as Node)) {
+        setIsSavingLayout(false);
+        setLayoutName('');
+      }
+    };
+
+    if (isSavingLayout) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isSavingLayout]);
+
   return (
     <div className="flex flex-wrap items-center gap-4 border-b border-[var(--color-border)] bg-[var(--color-panel)]/80 px-4 py-3 text-[var(--color-text)] shadow-[0_4px_30px_rgba(2,6,23,0.35)] backdrop-blur">
       {/* View/Edit Mode Toggle */}
@@ -105,40 +121,16 @@ export default function Toolbar() {
 
       <div className="h-6 w-px bg-[var(--color-border)]" />
 
-      {/* Layout Mode Toggle */}
+      {/* Layout Mode - Always Freeflow */}
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium text-[var(--color-text-muted)]">
           Layout:
         </span>
-        <button
-          onClick={() => setLayoutMode('auto')}
-          className={`px-3 py-1.5 rounded text-sm font-medium transition ${
-            layoutMode === 'auto'
-              ? 'bg-emerald-400 text-[#022c22]'
-              : 'bg-[var(--color-surface-alt)] text-[var(--color-text)] hover:bg-[var(--color-surface)]'
-          }`}
-        >
-          Auto
-        </button>
-        <button
-          onClick={() => setLayoutMode('freeflow')}
-          className={`px-3 py-1.5 rounded text-sm font-medium transition ${
-            layoutMode === 'freeflow'
-              ? 'bg-emerald-400 text-[#022c22]'
-              : 'bg-[var(--color-surface-alt)] text-[var(--color-text)] hover:bg-[var(--color-surface)]'
-          }`}
-        >
+        <div className="px-3 py-1.5 rounded text-sm font-medium bg-emerald-400 text-[#022c22]">
           Freeflow
-        </button>
+        </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={refreshLayout}
-            className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-text-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Re-run layout
-          </button>
-          <div className="relative">
+          <div className="relative" ref={saveLayoutRef}>
             <button
               onClick={() => setIsSavingLayout((prev) => !prev)}
               className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-3 py-1.5 text-sm text-[var(--color-text)] hover:border-[var(--color-accent)]"
@@ -148,15 +140,24 @@ export default function Toolbar() {
               <ChevronDown className="h-3 w-3" />
             </button>
             {isSavingLayout && (
-              <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-2xl">
+              <div className="absolute right-0 top-full mt-2 w-64 z-50 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-2xl">
                 <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-text-muted)]">
                   Save layout
                 </p>
                 <input
                   value={layoutName}
                   onChange={(e) => setLayoutName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSaveLayout();
+                    } else if (e.key === 'Escape') {
+                      setIsSavingLayout(false);
+                      setLayoutName('');
+                    }
+                  }}
                   placeholder="Layout name"
                   className="mt-2 w-full rounded-xl border border-[var(--color-border)] bg-transparent px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+                  autoFocus
                 />
                 <div className="mt-3 flex justify-end gap-2">
                   <button
@@ -186,16 +187,11 @@ export default function Toolbar() {
                 onChange={(e) => {
                   const layoutId = e.target.value;
                   if (!layoutId) return;
-                  if (layoutId === '__auto__') {
-                    setLayoutMode('auto');
-                    refreshLayout();
-                    return;
-                  }
                   loadLayout(layoutId);
                 }}
                 className="rounded-full border border-[var(--color-border)] bg-transparent px-3 py-1.5 text-sm text-[var(--color-text)]"
               >
-                <option value="__auto__">Auto layout</option>
+                <option value="">Load saved layout</option>
                 {savedLayouts.map((layout) => (
                   <option key={layout.id} value={layout.id}>
                     {formatLayoutLabel(layout)}
@@ -223,6 +219,7 @@ export default function Toolbar() {
 
       <div className="h-6 w-px bg-[var(--color-border)]" />
 
+      {/* Tree actions */}
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium text-[var(--color-text-muted)]">
           Tree actions:
@@ -264,6 +261,7 @@ export default function Toolbar() {
         <>
           <div className="h-6 w-px bg-[var(--color-border)]" />
 
+          {/* Color Picker */}
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-[var(--color-text-muted)]">
               Node color:
@@ -281,6 +279,7 @@ export default function Toolbar() {
             </div>
           </div>
 
+          {/* Icon Picker */}
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-[var(--color-text-muted)]">
               Node icon:
@@ -332,3 +331,4 @@ export default function Toolbar() {
     </div>
   );
 }
+

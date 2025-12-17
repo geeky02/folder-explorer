@@ -48,11 +48,10 @@ export function convertToReactFlowNodes(
         id: `e${parentId}-${node.id}`,
         source: parentId,
         target: node.id,
-        type: 'bezier',
+        type: 'animatedDashed',
         animated: false,
         style: {
-          strokeWidth: Math.max(1, Math.min(4, childCount / 2 + 1)),
-          stroke: '#CBD5F5',
+          strokeWidth: 1,
         },
       });
     }
@@ -96,3 +95,4 @@ export function formatPath(path: string): string {
   }
   return path;
 }
+

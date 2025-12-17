@@ -75,11 +75,13 @@ function setExpandedForTree(
 }
 
 interface FlowState {
+  // Data
   nodes: FolderNode[];
   areas: Area[];
   savedLayouts: SavedLayout[];
   activeLayoutId: string | null;
 
+  // UI State
   layoutMode: LayoutMode;
   viewMode: ViewMode;
   selectedNodeId: string | null;
@@ -93,11 +95,13 @@ interface FlowState {
   theme: "light" | "dark";
   isSidebarCollapsed: boolean;
 
+  // Canvas State
   zoom: number;
   pan: { x: number; y: number };
   isLoadingNodes: boolean;
   searchLoading: boolean;
 
+  // Actions
   setNodes: (nodes: FolderNode[]) => void;
   setAreas: (areas: Area[]) => void;
   updateAreaColor: (id: string, color: string) => void;
@@ -133,11 +137,12 @@ interface FlowState {
 }
 
 export const useFlowStore = create<FlowState>((set, get) => ({
+  // Initial state
   nodes: [],
   areas: [],
   savedLayouts: [],
   activeLayoutId: null,
-  layoutMode: "auto",
+  layoutMode: "freeflow",
   viewMode: "view",
   selectedNodeId: null,
   selectedAreaId: null,
@@ -145,15 +150,16 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   highlightedNodeIds: [],
   searchMatches: [],
   activeSearchIndex: -1,
-  activeConnector: "everything-sdk",
+  activeConnector: "local-fs",
   layoutRefreshToken: 0,
-  theme: "dark",
+  theme: "light",
   isSidebarCollapsed: false,
   zoom: 1,
   pan: { x: 0, y: 0 },
   isLoadingNodes: false,
   searchLoading: false,
 
+  // Actions
   setNodes: (nodes) => set({ nodes }),
   setAreas: (areas) => set({ areas }),
   updateAreaColor: (id, color) =>
@@ -374,13 +380,40 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   setPan: (pan) => set({ pan }),
   loadConnectorRoot: async (connectorId, path) => {
     set({ isLoadingNodes: true });
+    
+    // Retry helper function
+    const retryFetch = async <T>(
+      fn: () => Promise<T>,
+      retries = 3,
+      delay = 1000
+    ): Promise<T> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          return await fn();
+        } catch (error) {
+          if (i === retries - 1) throw error;
+          console.warn(`Retry ${i + 1}/${retries} after ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      throw new Error('Max retries exceeded');
+    };
+
     try {
       let nodes: FolderNode[] = [];
       if (connectorId === "everything-sdk") {
-        const response = await listEverythingChildren(path);
-        nodes = [convertEverythingListResponse(response)];
+        try {
+          const response = await retryFetch(() => listEverythingChildren(path));
+          nodes = [convertEverythingListResponse(response)];
+        } catch (everythingError) {
+          console.warn("Everything SDK not available, falling back to mock data:", everythingError);
+          // Fallback to local-fs mock data
+          const directory = await retryFetch(() => fetchDirectory());
+          nodes = [convertDirectoryResponse(directory)];
+          connectorId = "local-fs";
+        }
       } else {
-        const directory = await fetchDirectory(path);
+        const directory = await retryFetch(() => fetchDirectory(path));
         nodes = [convertDirectoryResponse(directory)];
       }
       set({
@@ -390,7 +423,20 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       });
     } catch (error) {
       console.error(`Failed to load connector ${connectorId}:`, error);
-      set({ nodes: [], isLoadingNodes: false });
+      // Last resort: try to load mock data with retry
+      try {
+        const directory = await retryFetch(() => fetchDirectory(), 2, 500);
+        const nodes = [convertDirectoryResponse(directory)];
+        set({
+          nodes,
+          activeConnector: "local-fs",
+          isLoadingNodes: false,
+        });
+      } catch (fallbackError) {
+        console.error("Failed to load fallback mock data:", fallbackError);
+        console.error("Make sure the backend server is running on port 3001");
+        set({ nodes: [], isLoadingNodes: false });
+      }
     }
   },
 }));

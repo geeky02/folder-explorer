@@ -14,7 +14,7 @@ export interface FolderNode {
   position: Position;
   children: FolderNode[];
   expanded?: boolean;
-  areaId?: string;
+  areaId?: string; // For area grouping
   hasChildren?: boolean;
   connector?: string;
 }
@@ -34,7 +34,7 @@ export interface FolderNodeVisualData {
 export interface Area {
   id: string;
   name: string;
-  nodes: string[];
+  nodes: string[]; // Array of node IDs
   color: string;
   position: Position;
   size: { width: number; height: number };
