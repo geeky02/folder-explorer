@@ -12,15 +12,21 @@ interface ConvertOptions {
   highlightedNodeIds?: Set<string>;
 }
 
+const MAX_RENDERED_NODES = 1000;
+
 export function convertToReactFlowNodes(
   nodes: FolderNode[],
-  options: ConvertOptions = {}
+  options: ConvertOptions & { nodeCount?: { current: number } } = {}
 ): { nodes: Node<FolderNodeVisualData>[]; edges: Edge[] } {
   const reactFlowNodes: Node<FolderNodeVisualData>[] = [];
   const reactFlowEdges: Edge[] = [];
-  const { parentId, depth = 0, highlightedNodeIds } = options;
+  const { parentId, depth = 0, highlightedNodeIds, nodeCount = { current: 0 } } = options;
 
   nodes.forEach((node) => {
+    if (nodeCount.current >= MAX_RENDERED_NODES) {
+      return;
+    }
+
     const childCount = node.children ? node.children.length : 0;
     const isHighlighted = highlightedNodeIds?.has(node.id) ?? false;
 
@@ -30,7 +36,7 @@ export function convertToReactFlowNodes(
       icon: node.icon,
       color: node.color,
       children: node.children,
-      expanded: node.expanded ?? true,
+      expanded: node.expanded ?? false,
       depth,
       childCount,
       isHighlighted,
@@ -42,6 +48,7 @@ export function convertToReactFlowNodes(
       position: node.position,
       data: nodeData,
     });
+    nodeCount.current++;
 
     if (parentId) {
       reactFlowEdges.push({
@@ -56,11 +63,12 @@ export function convertToReactFlowNodes(
       });
     }
 
-    if (node.children && node.children.length > 0 && node.expanded !== false) {
+    if (node.children && node.children.length > 0 && node.expanded === true && nodeCount.current < MAX_RENDERED_NODES) {
       const childResult = convertToReactFlowNodes(node.children, {
         parentId: node.id,
         depth: depth + 1,
         highlightedNodeIds,
+        nodeCount, 
       });
       reactFlowNodes.push(...childResult.nodes);
       reactFlowEdges.push(...childResult.edges);
@@ -95,4 +103,3 @@ export function formatPath(path: string): string {
   }
   return path;
 }
-

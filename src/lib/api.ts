@@ -37,7 +37,6 @@ export async function fetchDirectory(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Failed to fetch directory:", response.status, errorText);
       throw new Error(
         `Failed to fetch directory structure: ${response.status} ${errorText}`
       );
@@ -45,7 +44,6 @@ export async function fetchDirectory(
 
     return (await response.json()) as DirectoryResponse;
   } catch (error) {
-    console.error("Network error fetching directory:", error);
     throw error;
   }
 }
@@ -145,7 +143,6 @@ export async function fetchLayouts(): Promise<SavedLayout[]> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Failed to fetch layouts:", response.status, errorText);
       throw new Error(
         `Failed to fetch layouts: ${response.status} ${errorText}`
       );
@@ -153,7 +150,6 @@ export async function fetchLayouts(): Promise<SavedLayout[]> {
 
     return (await response.json()) as SavedLayout[];
   } catch (error) {
-    console.error("Network error fetching layouts:", error);
     throw error;
   }
 }
@@ -189,5 +185,33 @@ export async function deleteLayoutRequest(layoutId: string): Promise<void> {
   });
   if (!response.ok) {
     throw new Error("Failed to delete layout");
+  }
+}
+
+export interface Drive {
+  name: string;
+  path: string;
+  type: "drive" | "folder";
+}
+
+export async function fetchDrives(): Promise<Drive[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/drives`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Failed to fetch drives: ${response.status} ${errorText}`
+      );
+    }
+
+    return (await response.json()) as Drive[];
+  } catch (error) {
+    throw error;
   }
 }

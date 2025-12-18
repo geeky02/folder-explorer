@@ -134,6 +134,7 @@ interface FlowState {
   setZoom: (zoom: number) => void;
   setPan: (pan: { x: number; y: number }) => void;
   loadConnectorRoot: (connectorId: string, path?: string) => Promise<void>;
+  addRootFolder: (folderNode: FolderNode) => void;
 }
 
 export const useFlowStore = create<FlowState>((set, get) => ({
@@ -195,15 +196,15 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
       try {
         const result = await searchEverything(trimmed, 60);
-        const matches: SearchMatch[] = result.results.slice(0, 25).map(
-          (entry) => ({
+        const matches: SearchMatch[] = result.results
+          .slice(0, 25)
+          .map((entry) => ({
             id: entry.path || entry.id || generateNodeId(entry.name),
             name: entry.name,
             path: entry.path || entry.name,
             icon: entry.icon,
             connector: "everything-sdk",
-          })
-        );
+          }));
 
         set({
           searchMatches: matches,
@@ -211,7 +212,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           activeSearchIndex: matches.length > 0 ? 0 : -1,
         });
       } catch (error) {
-        console.error("Everything search failed:", error);
         set({
           searchMatches: [],
           searchLoading: false,
@@ -253,7 +253,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   deleteLayout: async (layoutId: string) => {
     await deleteLayoutRequest(layoutId);
     set((state) => ({
-      savedLayouts: state.savedLayouts.filter((layout) => layout.id !== layoutId),
+      savedLayouts: state.savedLayouts.filter(
+        (layout) => layout.id !== layoutId
+      ),
       activeLayoutId:
         state.activeLayoutId === layoutId ? null : state.activeLayoutId,
     }));
@@ -378,9 +380,24 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     })),
   setZoom: (zoom) => set({ zoom }),
   setPan: (pan) => set({ pan }),
+  addRootFolder: (folderNode) =>
+    set((state) => {
+      const existingRootNodes = state.nodes;
+      const offsetX = existingRootNodes.length * 400;
+      const offsetY = 100;
+
+      const newNode = {
+        ...folderNode,
+        position: { x: offsetX, y: offsetY },
+      };
+
+      return {
+        nodes: [...state.nodes, newNode],
+      };
+    }),
   loadConnectorRoot: async (connectorId, path) => {
     set({ isLoadingNodes: true });
-    
+
     // Retry helper function
     const retryFetch = async <T>(
       fn: () => Promise<T>,
@@ -392,11 +409,10 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           return await fn();
         } catch (error) {
           if (i === retries - 1) throw error;
-          console.warn(`Retry ${i + 1}/${retries} after ${delay}ms...`);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
-      throw new Error('Max retries exceeded');
+      throw new Error("Max retries exceeded");
     };
 
     try {
@@ -406,15 +422,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           const response = await retryFetch(() => listEverythingChildren(path));
           nodes = [convertEverythingListResponse(response)];
         } catch (everythingError) {
-          console.warn("Everything SDK not available, falling back to mock data:", everythingError);
           // Fallback to local-fs mock data
           const directory = await retryFetch(() => fetchDirectory());
-          nodes = [convertDirectoryResponse(directory)];
+          nodes = [convertDirectoryResponse(directory, true)];
           connectorId = "local-fs";
         }
       } else {
         const directory = await retryFetch(() => fetchDirectory(path));
-        nodes = [convertDirectoryResponse(directory)];
+        nodes = [convertDirectoryResponse(directory, true)];
       }
       set({
         nodes,
@@ -422,26 +437,26 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         isLoadingNodes: false,
       });
     } catch (error) {
-      console.error(`Failed to load connector ${connectorId}:`, error);
       // Last resort: try to load mock data with retry
       try {
         const directory = await retryFetch(() => fetchDirectory(), 2, 500);
-        const nodes = [convertDirectoryResponse(directory)];
+        const nodes = [convertDirectoryResponse(directory, true)];
         set({
           nodes,
           activeConnector: "local-fs",
           isLoadingNodes: false,
         });
       } catch (fallbackError) {
-        console.error("Failed to load fallback mock data:", fallbackError);
-        console.error("Make sure the backend server is running on port 3001");
         set({ nodes: [], isLoadingNodes: false });
       }
     }
   },
 }));
 
-function collectMatchingNodes(nodes: FolderNode[], query: string): FolderNode[] {
+function collectMatchingNodes(
+  nodes: FolderNode[],
+  query: string
+): FolderNode[] {
   const matches: FolderNode[] = [];
   const lower = query.toLowerCase();
 
@@ -532,10 +547,7 @@ function applySearchQueryToState(state: FlowState, query: string) {
   };
 }
 
-function findNodeById(
-  nodes: FolderNode[],
-  id: string
-): FolderNode | null {
+function findNodeById(nodes: FolderNode[], id: string): FolderNode | null {
   for (const node of nodes) {
     if (node.id === id) {
       return node;
@@ -568,7 +580,10 @@ function createNodeFromSearchMatch(
   };
 }
 
-function convertDirectoryResponse(dir: DirectoryResponse): FolderNode {
+function convertDirectoryResponse(
+  dir: DirectoryResponse,
+  isRoot = false
+): FolderNode {
   return {
     id: dir.id || generateNodeId(dir.path),
     name: dir.name,
@@ -577,9 +592,9 @@ function convertDirectoryResponse(dir: DirectoryResponse): FolderNode {
     color: dir.color || "#e0e0e0",
     position: dir.position || { x: 0, y: 0 },
     children: dir.children
-      ? dir.children.map((child) => convertDirectoryResponse(child))
+      ? dir.children.map((child) => convertDirectoryResponse(child, false))
       : [],
-    expanded: true,
+    expanded: isRoot,
     hasChildren: Boolean(dir.children && dir.children.length > 0),
     connector: "local-fs",
   };

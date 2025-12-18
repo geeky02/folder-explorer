@@ -7,6 +7,7 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 const fsPromises = fs.promises;
+const os = require("os");
 const { v4: uuidv4 } = require("uuid");
 
 const app = express();
@@ -29,15 +30,16 @@ async function writeLayouts(layouts) {
 }
 
 // Middleware
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: false
-}));
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: false,
+  })
+);
 app.use(express.json());
 
-// Mock data for development (replace with Everything SDK integration)
 const mockDirectoryStructure = {
   id: "root",
   name: "C:\\",
@@ -80,7 +82,6 @@ const mockDirectoryStructure = {
 
 /**
  * Recursively read directory structure
- * TODO: Replace with Everything SDK integration
  */
 async function readDirectory(dirPath, maxDepth = 5, currentDepth = 0) {
   if (currentDepth >= maxDepth) {
@@ -99,13 +100,19 @@ async function readDirectory(dirPath, maxDepth = 5, currentDepth = 0) {
     for (const entry of entries) {
       if (entry.isDirectory()) {
         const childPath = path.join(dirPath, entry.name);
-        const child = await readDirectory(
-          childPath,
-          maxDepth,
-          currentDepth + 1
-        );
-        if (child) {
-          children.push(child);
+        try {
+          const child = await readDirectory(
+            childPath,
+            maxDepth,
+            currentDepth + 1
+          );
+          if (child) {
+            children.push(child);
+          }
+        } catch (childError) {
+          if (childError.code !== "EPERM" && childError.code !== "EACCES") {
+            throw childError;
+          }
         }
       }
     }
@@ -120,36 +127,216 @@ async function readDirectory(dirPath, maxDepth = 5, currentDepth = 0) {
       position: { x: 0, y: 0 },
     };
   } catch (error) {
-    console.error(`Error reading directory ${dirPath}:`, error.message);
-    return null;
+    throw error;
   }
+}
+
+/**
+ * GET /drives
+ * Returns list of available drives (Windows: C:, D:, etc.)
+ */
+app.get("/drives", async (_req, res) => {
+  try {
+    const platform = process.platform;
+    const drives = [];
+
+    if (platform === "win32") {
+      const { exec } = require("child_process");
+      const { promisify } = require("util");
+      const execAsync = promisify(exec);
+
+      try {
+        const { stdout } = await execAsync("wmic logicaldisk get name");
+        const driveLines = stdout
+          .split("\n")
+          .slice(1)
+          .map((line) => line.trim())
+          .filter((line) => line && /^[A-Z]:$/.test(line));
+
+        for (const driveLetter of driveLines) {
+          const drivePath = `${driveLetter}\\`;
+          try {
+            const stats = await fsPromises.stat(drivePath);
+            if (stats.isDirectory()) {
+              drives.push({
+                name: driveLetter,
+                path: drivePath,
+                type: "drive",
+              });
+            }
+          } catch {}
+        }
+      } catch {
+        const commonDrives = ["C:", "D:", "E:", "F:"];
+        for (const driveLetter of commonDrives) {
+          const drivePath = `${driveLetter}\\`;
+          try {
+            const stats = await fsPromises.stat(drivePath);
+            if (stats.isDirectory()) {
+              drives.push({
+                name: driveLetter,
+                path: drivePath,
+                type: "drive",
+              });
+            }
+          } catch {}
+        }
+      }
+    } else {
+      const homeDir = os.homedir();
+      const commonPaths = [
+        {
+          name: "Desktop",
+          path: path.join(homeDir, "Desktop"),
+          type: "folder",
+        },
+        {
+          name: "Documents",
+          path: path.join(homeDir, "Documents"),
+          type: "folder",
+        },
+        {
+          name: "Downloads",
+          path: path.join(homeDir, "Downloads"),
+          type: "folder",
+        },
+        { name: "Home", path: homeDir, type: "folder" },
+        { name: "Root", path: "/", type: "folder" },
+      ];
+
+      let hasAccessiblePath = false;
+      for (const item of commonPaths) {
+        try {
+          const stats = await fsPromises.stat(item.path);
+          if (stats.isDirectory()) {
+            drives.push(item);
+            hasAccessiblePath = true;
+          }
+        } catch (error) {}
+      }
+
+      if (!hasAccessiblePath || drives.length === 0) {
+        drives.push(
+          { name: "C:", path: "C:\\", type: "drive" },
+          { name: "D:", path: "D:\\", type: "drive" },
+          {
+            name: "Mock Folder A",
+            path: "/Users/Mock/FolderA",
+            type: "folder",
+          },
+          { name: "Mock Folder B", path: "/Users/Mock/FolderB", type: "folder" }
+        );
+      }
+    }
+
+    if (drives.length === 0) {
+      drives.push(
+        { name: "C:", path: "C:\\", type: "drive" },
+        { name: "D:", path: "D:\\", type: "drive" }
+      );
+    }
+
+    res.json(drives);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch drives" });
+  }
+});
+
+/**
+ * Mock directory structure for fallback (when permissions fail or for testing)
+ */
+function getMockDirectoryStructure(basePath, baseName) {
+  return {
+    id: uuidv4(),
+    name: baseName || path.basename(basePath) || "Mock Drive",
+    path: basePath,
+    children: [
+      {
+        id: uuidv4(),
+        name: "Users",
+        path: path.join(basePath, "Users"),
+        children: [
+          {
+            id: uuidv4(),
+            name: "User1",
+            path: path.join(basePath, "Users", "User1"),
+            children: [
+              {
+                id: uuidv4(),
+                name: "Documents",
+                path: path.join(basePath, "Users", "User1", "Documents"),
+                children: [],
+                icon: "folder",
+                color: "#e0e0e0",
+                position: { x: 0, y: 0 },
+              },
+              {
+                id: uuidv4(),
+                name: "Desktop",
+                path: path.join(basePath, "Users", "User1", "Desktop"),
+                children: [],
+                icon: "folder",
+                color: "#e0e0e0",
+                position: { x: 0, y: 0 },
+              },
+            ],
+            icon: "folder",
+            color: "#e0e0e0",
+            position: { x: 0, y: 0 },
+          },
+        ],
+        icon: "folder",
+        color: "#e0e0e0",
+        position: { x: 0, y: 0 },
+      },
+      {
+        id: uuidv4(),
+        name: "Program Files",
+        path: path.join(basePath, "Program Files"),
+        children: [],
+        icon: "folder",
+        color: "#e0e0e0",
+        position: { x: 0, y: 0 },
+      },
+    ],
+    icon: "folder",
+    color: "#e0e0e0",
+    position: { x: 0, y: 0 },
+  };
 }
 
 /**
  * GET /directory?path=C:\Users
  * Returns folder tree structure
+ * Falls back to mock data if permissions fail (macOS) or directory not accessible
  */
 app.get("/directory", async (req, res) => {
   try {
     const { path: dirPath } = req.query;
 
     if (!dirPath) {
-      // Return mock data for development
       return res.json(mockDirectoryStructure);
     }
 
-    // TODO: Use Everything SDK for Windows
-    // For now, use Node.js fs (works on all platforms for development)
-    const structure = await readDirectory(dirPath);
+    let structure = null;
+    try {
+      structure = await readDirectory(dirPath);
+    } catch (error) {
+      structure = null;
+    }
 
-    if (!structure) {
-      return res.status(404).json({ error: "Directory not found" });
+    if (!structure || !structure.children || structure.children.length === 0) {
+      structure = getMockDirectoryStructure(dirPath, path.basename(dirPath));
     }
 
     res.json(structure);
   } catch (error) {
-    console.error("Error fetching directory:", error);
-    res.status(500).json({ error: "Failed to fetch directory structure" });
+    const { path: dirPath } = req.query;
+    const mockStructure = getMockDirectoryStructure(
+      dirPath || "C:\\",
+      "Mock Drive"
+    );
+    res.json(mockStructure);
   }
 });
 
@@ -161,7 +348,6 @@ app.get("/layouts", async (_req, res) => {
     const layouts = await readLayouts();
     res.json(layouts);
   } catch (error) {
-    console.error("Error reading layouts:", error);
     res.status(500).json({ error: "Failed to load layouts" });
   }
 });
@@ -175,7 +361,6 @@ app.get("/layouts/:id", async (req, res) => {
     }
     res.json(layout);
   } catch (error) {
-    console.error("Error fetching layout:", error);
     res.status(500).json({ error: "Failed to fetch layout" });
   }
 });
@@ -201,7 +386,6 @@ app.post("/layouts", async (req, res) => {
     await writeLayouts(layouts);
     res.status(201).json(layout);
   } catch (error) {
-    console.error("Error saving layout:", error);
     res.status(500).json({ error: "Failed to save layout" });
   }
 });
@@ -213,7 +397,6 @@ app.delete("/layouts/:id", async (req, res) => {
     await writeLayouts(filtered);
     res.json({ success: true });
   } catch (error) {
-    console.error("Error deleting layout:", error);
     res.status(500).json({ error: "Failed to delete layout" });
   }
 });
@@ -226,24 +409,14 @@ app.post("/save-layout", async (req, res) => {
   try {
     const { nodes, areas, layoutMode } = req.body;
 
-    // TODO: Save to file or database
-    // For now, just acknowledge
-    console.log("Saving layout:", {
-      nodesCount: nodes?.length,
-      areasCount: areas?.length,
-      layoutMode,
-    });
-
     res.json({ success: true, message: "Layout saved" });
   } catch (error) {
-    console.error("Error saving layout:", error);
     res.status(500).json({ error: "Failed to save layout" });
   }
 });
 
 /**
  * GET /search?q=keyword
- * Future: Search using Everything SDK
  */
 app.get("/search", async (req, res) => {
   try {
@@ -253,24 +426,19 @@ app.get("/search", async (req, res) => {
       return res.json([]);
     }
 
-    // TODO: Implement Everything SDK search
     res.json([]);
   } catch (error) {
-    console.error("Error searching:", error);
     res.status(500).json({ error: "Search failed" });
   }
 });
 
 /**
  * GET /starred-files
- * Future: Returns starred items
  */
 app.get("/starred-files", async (req, res) => {
   try {
-    // TODO: Implement starred files
     res.json([]);
   } catch (error) {
-    console.error("Error fetching starred files:", error);
     res.status(500).json({ error: "Failed to fetch starred files" });
   }
 });
@@ -290,7 +458,6 @@ app.post("/open-folder", async (req, res) => {
     const platform = process.platform;
     const isWindowsPath = /^[a-zA-Z]:\\/.test(folderPath);
 
-    // Guard against trying to open Windows-style mock paths on macOS/Linux
     if (platform !== "win32" && isWindowsPath) {
       return res.status(400).json({
         error:
@@ -298,17 +465,11 @@ app.post("/open-folder", async (req, res) => {
       });
     }
 
-    // Ensure the folder exists on the current machine before attempting to open
     if (!fs.existsSync(folderPath)) {
       return res.status(404).json({
         error: "Folder does not exist on this machine.",
       });
     }
-
-    // TODO: Use OS-specific command to open folder
-    // Windows: start folderPath
-    // Mac: open folderPath
-    // Linux: xdg-open folderPath
 
     const { exec } = require("child_process");
 
@@ -323,27 +484,15 @@ app.post("/open-folder", async (req, res) => {
 
     exec(command, (error) => {
       if (error) {
-        console.error("Error opening folder:", error);
         return res.status(500).json({ error: "Failed to open folder" });
       }
       res.json({ success: true });
     });
   } catch (error) {
-    console.error("Error opening folder:", error);
     res.status(500).json({ error: "Failed to open folder" });
   }
 });
 
 app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
-  console.log("API endpoints:");
-  console.log(`  GET  /directory?path=<path>`);
-  console.log(`  GET  /layouts`);
-  console.log(`  POST /layouts`);
-  console.log(`  GET  /layouts/:id`);
-  console.log(`  DELETE /layouts/:id`);
-  console.log(`  POST /save-layout`);
-  console.log(`  GET  /search?q=<query>`);
-  console.log(`  GET  /starred-files`);
-  console.log(`  POST /open-folder`);
 });

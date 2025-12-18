@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, MoonStar, SunMedium, Save, ChevronDown, Trash2 } from 'lucide-react';
+import { Sparkles, MoonStar, SunMedium, Save, ChevronDown, Trash2, FolderPlus } from 'lucide-react';
 import { useFlowStore } from '@/store/useFlowStore';
+import AddFolderModal from './AddFolderModal';
 
 export default function Toolbar() {
   const viewMode = useFlowStore((state) => state.viewMode);
@@ -29,6 +30,7 @@ export default function Toolbar() {
 
   const [isSavingLayout, setIsSavingLayout] = useState(false);
   const [layoutName, setLayoutName] = useState('');
+  const [isAddFolderModalOpen, setIsAddFolderModalOpen] = useState(false);
   const saveLayoutRef = useRef<HTMLDivElement>(null);
 
   const colors = [
@@ -219,6 +221,16 @@ export default function Toolbar() {
 
       <div className="h-6 w-px bg-[var(--color-border)]" />
 
+      <button
+        onClick={() => setIsAddFolderModalOpen(true)}
+        className="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-alt)] px-4 py-1.5 text-sm font-medium text-[var(--color-text)] hover:border-[var(--color-accent)] hover:bg-[var(--color-surface)] transition"
+      >
+        <FolderPlus className="h-4 w-4" />
+        Add Folder
+      </button>
+
+      <div className="h-6 w-px bg-[var(--color-border)]" />
+
       {/* Tree actions */}
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium text-[var(--color-text-muted)]">
@@ -328,6 +340,11 @@ export default function Toolbar() {
           Select a node to customize style.
         </div>
       )}
+
+      <AddFolderModal
+        isOpen={isAddFolderModalOpen}
+        onClose={() => setIsAddFolderModalOpen(false)}
+      />
     </div>
   );
 }

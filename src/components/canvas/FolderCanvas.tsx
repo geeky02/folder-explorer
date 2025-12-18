@@ -84,7 +84,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
 
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
-    
+
     // Configure for tree layout (top to bottom)
     dagreGraph.setGraph({
       rankdir: 'TB', // Top to bottom
@@ -227,7 +227,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: folderPath }),
-      }).catch((err) => console.error('Failed to open folder:', err));
+      }).catch(() => { });
     },
     [viewMode]
   );
@@ -247,7 +247,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       if (viewportUpdateTimeoutRef.current) {
         clearTimeout(viewportUpdateTimeoutRef.current);
       }
-      
+
       // Debounce viewport updates to prevent excessive store updates
       viewportUpdateTimeoutRef.current = setTimeout(() => {
         setPan({ x: viewport.x, y: viewport.y });
@@ -270,7 +270,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
   const handleZoomToArea = useCallback(
     (area: Area) => {
       setSelectedAreaId(area.id);
-      
+
       // Get area node IDs
       const areaNodeIds = area.nodes;
       if (areaNodeIds.length === 0) return;
@@ -350,10 +350,10 @@ function FlowCanvas({ className }: FolderCanvasProps) {
         selectionOnDrag
         panOnDrag={!isEditable}
         connectionLineType={ConnectionLineType.Bezier}
-        defaultEdgeOptions={{ 
+        defaultEdgeOptions={{
           type: 'animatedDashed',
           animated: false,
-          style: { strokeWidth: 1 } 
+          style: { strokeWidth: 1 }
         }}
         proOptions={{ hideAttribution: true }}
         elevateNodesOnSelect

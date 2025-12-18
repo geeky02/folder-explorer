@@ -51,7 +51,7 @@ const FolderNode = memo(function FolderNode({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: data.path }),
-    }).catch((err) => console.error('Failed to open folder:', err));
+    }).catch(() => { });
     handleContextMenuClose();
   }, [data.path]);
 
@@ -70,28 +70,26 @@ const FolderNode = memo(function FolderNode({
       <motion.div
         onContextMenu={handleRightClick}
         onClick={() => hasChildren && toggleNodeExpanded(id)}
-        className={`group relative w-[140px] rounded-lg border bg-white px-2.5 py-2 shadow-sm transition-all ${
-          selected
+        className={`group relative w-[140px] rounded-lg border bg-white px-2.5 py-2 shadow-sm transition-all ${selected
             ? 'border-[var(--color-accent)] shadow-md'
             : 'border-gray-200'
-        } ${
-          data.isHighlighted
+          } ${data.isHighlighted
             ? 'ring-2 ring-[var(--color-accent)]/70 ring-offset-1'
             : 'ring-0'
-        }`}
+          }`}
         style={{
           background: data.color || 'white',
         }}
       >
-        <Handle 
-          type="target" 
+        <Handle
+          type="target"
           position={Position.Top}
         />
 
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <div className="text-base leading-none flex-shrink-0">{getIcon(data.icon)}</div>
           <div className="min-w-0 flex-1">
-            <p 
+            <p
               className="text-xs font-medium truncate leading-tight"
               style={{
                 color: data.color ? (isLightColor(data.color) ? '#1f2937' : '#ffffff') : '#1f2937'
@@ -114,8 +112,8 @@ const FolderNode = memo(function FolderNode({
           )}
         </div>
 
-        <Handle 
-          type="source" 
+        <Handle
+          type="source"
           position={Position.Bottom}
         />
       </motion.div>
@@ -166,7 +164,7 @@ function getIcon(iconName: string): string {
   if (/[\u{1F300}-\u{1F9FF}]/u.test(iconName)) {
     return iconName;
   }
-  
+
   // Map string keys to emoji icons
   const icons: Record<string, string> = {
     folder: '📁',
@@ -181,17 +179,17 @@ function isLightColor(color: string): boolean {
   try {
     // Remove # if present
     const hex = color.replace('#', '');
-    
+
     if (hex.length !== 6) return true; // Default to light if invalid
-    
+
     // Convert to RGB
     const r = parseInt(hex.substring(0, 2), 16);
     const g = parseInt(hex.substring(2, 4), 16);
     const b = parseInt(hex.substring(4, 6), 16);
-    
+
     // Calculate luminance
     const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    
+
     // Return true if light (luminance > 0.5)
     return luminance > 0.5;
   } catch {
