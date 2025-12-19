@@ -117,6 +117,12 @@ async function readDirectory(dirPath, maxDepth = 5, currentDepth = 0) {
       }
     }
 
+    let mtime = null;
+    try {
+      const stats = await fsPromises.stat(dirPath);
+      mtime = stats.mtime;
+    } catch {}
+
     return {
       id: uuidv4(),
       name: path.basename(dirPath),
@@ -125,6 +131,7 @@ async function readDirectory(dirPath, maxDepth = 5, currentDepth = 0) {
       icon: "folder",
       color: "#e0e0e0",
       position: { x: 0, y: 0 },
+      modifiedDate: mtime ? mtime.toISOString() : null,
     };
   } catch (error) {
     throw error;
@@ -246,20 +253,32 @@ app.get("/drives", async (_req, res) => {
  * Mock directory structure for fallback (when permissions fail or for testing)
  */
 function getMockDirectoryStructure(basePath, baseName) {
+  const now = new Date();
+  const mockDates = [
+    new Date(2023, 10, 10), // November 10, 2023
+    new Date(2023, 7, 20),  // August 20, 2023
+    new Date(2018, 0, 10),  // January 10, 2018
+    new Date(2019, 4, 20),   // May 20, 2019
+    new Date(2016, 10, 26), // November 26, 2016
+  ];
+  
   return {
     id: uuidv4(),
     name: baseName || path.basename(basePath) || "Mock Drive",
     path: basePath,
+    modifiedDate: now.toISOString(),
     children: [
       {
         id: uuidv4(),
         name: "Users",
         path: path.join(basePath, "Users"),
+        modifiedDate: mockDates[0].toISOString(),
         children: [
           {
             id: uuidv4(),
             name: "User1",
             path: path.join(basePath, "Users", "User1"),
+            modifiedDate: mockDates[1].toISOString(),
             children: [
               {
                 id: uuidv4(),
@@ -269,6 +288,7 @@ function getMockDirectoryStructure(basePath, baseName) {
                 icon: "folder",
                 color: "#e0e0e0",
                 position: { x: 0, y: 0 },
+                modifiedDate: mockDates[2].toISOString(),
               },
               {
                 id: uuidv4(),
@@ -278,6 +298,7 @@ function getMockDirectoryStructure(basePath, baseName) {
                 icon: "folder",
                 color: "#e0e0e0",
                 position: { x: 0, y: 0 },
+                modifiedDate: mockDates[3].toISOString(),
               },
             ],
             icon: "folder",
@@ -297,6 +318,7 @@ function getMockDirectoryStructure(basePath, baseName) {
         icon: "folder",
         color: "#e0e0e0",
         position: { x: 0, y: 0 },
+        modifiedDate: mockDates[4].toISOString(),
       },
     ],
     icon: "folder",

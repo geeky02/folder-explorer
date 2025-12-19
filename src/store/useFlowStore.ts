@@ -383,7 +383,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   addRootFolder: (folderNode) =>
     set((state) => {
       const existingRootNodes = state.nodes;
-      const offsetX = existingRootNodes.length * 400;
+      const offsetX = existingRootNodes.length * 400; // Space nodes horizontally
       const offsetY = 100;
 
       const newNode = {
@@ -440,7 +440,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       // Last resort: try to load mock data with retry
       try {
         const directory = await retryFetch(() => fetchDirectory(), 2, 500);
-        const nodes = [convertDirectoryResponse(directory, true)];
+        const nodes = [convertDirectoryResponse(directory, true)]; 
         set({
           nodes,
           activeConnector: "local-fs",
@@ -582,8 +582,11 @@ function createNodeFromSearchMatch(
 
 function convertDirectoryResponse(
   dir: DirectoryResponse,
-  isRoot = false
+  isRoot = false,
+  depth = 0
 ): FolderNode {
+  const shouldExpand = isRoot || depth === 0;
+  
   return {
     id: dir.id || generateNodeId(dir.path),
     name: dir.name,
@@ -592,9 +595,9 @@ function convertDirectoryResponse(
     color: dir.color || "#e0e0e0",
     position: dir.position || { x: 0, y: 0 },
     children: dir.children
-      ? dir.children.map((child) => convertDirectoryResponse(child, false))
+      ? dir.children.map((child) => convertDirectoryResponse(child, false, depth + 1))
       : [],
-    expanded: isRoot,
+    expanded: shouldExpand,
     hasChildren: Boolean(dir.children && dir.children.length > 0),
     connector: "local-fs",
   };

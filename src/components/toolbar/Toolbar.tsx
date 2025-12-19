@@ -221,6 +221,7 @@ export default function Toolbar() {
 
       <div className="h-6 w-px bg-[var(--color-border)]" />
 
+      {/* Add Folder button */}
       <button
         onClick={() => setIsAddFolderModalOpen(true)}
         className="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-alt)] px-4 py-1.5 text-sm font-medium text-[var(--color-text)] hover:border-[var(--color-accent)] hover:bg-[var(--color-surface)] transition"
@@ -341,6 +342,7 @@ export default function Toolbar() {
         </div>
       )}
 
+      {/* Add Folder Modal */}
       <AddFolderModal
         isOpen={isAddFolderModalOpen}
         onClose={() => setIsAddFolderModalOpen(false)}

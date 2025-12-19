@@ -18,6 +18,7 @@ export interface DirectoryResponse {
   icon: string;
   color: string;
   position: { x: number; y: number };
+  modifiedDate?: string | null;
 }
 
 export async function fetchDirectory(

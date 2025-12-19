@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import ReactFlow, {
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   Node,
@@ -18,6 +19,7 @@ import ReactFlow, {
   OnSelectionChangeFunc,
   Viewport,
   ConnectionLineType,
+  Position,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
@@ -65,38 +67,87 @@ function FlowCanvas({ className }: FolderCanvasProps) {
   const { fitView } = useReactFlow();
   const viewportUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previousStoreNodesRef = useRef<string>('');
+  const isDraggingRef = useRef(false);
+  const dragStartPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const lastDragNodeRef = useRef<Node | null>(null);
+  const justFinishedDragRef = useRef(false);
 
   const highlightedSet = useMemo(
     () => new Set(highlightedNodeIds),
     [highlightedNodeIds]
   );
 
-  // Apply Dagre tree layout
-  const applyTreeLayout = useCallback((nodes: Node[], edges: any[]) => {
+  const isEditable = viewMode === 'edit';
+
+  const applyTreeLayout = useCallback((nodes: Node[], edges: any[], preservePositions = true) => {
     if (nodes.length === 0) return nodes;
     if (edges.length === 0) {
-      // If no edges, just position nodes in a grid
       return nodes.map((node, index) => ({
         ...node,
         position: { x: index * 250, y: 100 },
       }));
     }
 
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
+    const parentToChildren = new Map<string, string[]>(); // parent -> children
+    const childToParent = new Map<string, string>(); // child -> parent
+    
+    edges.forEach(edge => {
+      if (!parentToChildren.has(edge.source)) {
+        parentToChildren.set(edge.source, []);
+      }
+      parentToChildren.get(edge.source)!.push(edge.target);
+      childToParent.set(edge.target, edge.source);
+    });
+
+    const rootNodes = nodes.filter(node => !childToParent.has(node.id));
+    
+    if (preservePositions) {
+      const layoutedNodes = [...nodes];
+      
+      parentToChildren.forEach((childIds, parentId) => {
+        const parent = nodeMap.get(parentId);
+        if (!parent || childIds.length === 0) return;
+
+        const children = childIds.map(id => nodeMap.get(id)).filter(Boolean) as Node[];
+        if (children.length === 0) return;
+
+        const parentCenterX = parent.position.x + nodeWidth / 2;
+        
+        const childSpacing = 30;
+        const totalChildrenWidth = children.length * nodeWidth + (children.length - 1) * childSpacing;
+        const startX = parentCenterX - totalChildrenWidth / 2;
+
+        children.forEach((child, index) => {
+          const childX = startX + index * (nodeWidth + childSpacing);
+          const childY = parent.position.y + nodeHeight + 40; 
+          
+          const childNode = layoutedNodes.find(n => n.id === child.id);
+          if (childNode) {
+            childNode.position = { x: childX, y: childY };
+            childNode.targetPosition = Position.Top;
+            childNode.sourcePosition = Position.Bottom;
+          }
+        });
+      });
+
+      return layoutedNodes;
+    }
+
+    // Fallback: Full Dagre layout (only used on initial load or when nodes are stacked)
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-    // Configure for tree layout (top to bottom)
     dagreGraph.setGraph({
-      rankdir: 'TB', // Top to bottom
-      align: 'UL', // Upper left alignment
-      nodesep: 80, // Horizontal spacing between nodes at same level
-      ranksep: 100, // Vertical spacing between levels
-      edgesep: 30,
+      rankdir: 'TB',
+      align: 'UL',
+      nodesep: 30,
+      ranksep: 40,
+      edgesep: 10,
       acyclicer: 'greedy',
-      ranker: 'tight-tree', // Use tight-tree for better tree layout
+      ranker: 'tight-tree',
     });
 
-    // Add nodes to graph
     nodes.forEach((node) => {
       dagreGraph.setNode(node.id, {
         width: nodeWidth,
@@ -104,37 +155,55 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       });
     });
 
-    // Add edges to graph
     edges.forEach((edge) => {
       dagreGraph.setEdge(edge.source, edge.target);
     });
 
-    // Run layout
     dagre.layout(dagreGraph);
 
-    // Apply positions from Dagre
     const layoutedNodes = nodes.map((node) => {
       const nodeWithPosition = dagreGraph.node(node.id);
       if (!nodeWithPosition) {
         return node;
       }
 
-      // Convert Dagre position (center-based) to ReactFlow position (top-left based)
       const x = nodeWithPosition.x - nodeWidth / 2;
       const y = nodeWithPosition.y - nodeHeight / 2;
 
       return {
         ...node,
         position: { x, y },
-        targetPosition: 'top' as const,
-        sourcePosition: 'bottom' as const,
+        targetPosition: Position.Top,
+        sourcePosition: Position.Bottom,
       };
+    });
+
+    parentToChildren.forEach((childIds, parentId) => {
+      const parent = nodeMap.get(parentId);
+      if (!parent || childIds.length === 0) return;
+
+      const children = childIds.map(id => nodeMap.get(id)).filter(Boolean) as Node[];
+      if (children.length === 0) return;
+
+      const parentCenterX = parent.position.x + nodeWidth / 2;
+      const childSpacing = 30;
+      const totalChildrenWidth = children.length * nodeWidth + (children.length - 1) * childSpacing;
+      const startX = parentCenterX - totalChildrenWidth / 2;
+
+      children.forEach((child, index) => {
+        const childX = startX + index * (nodeWidth + childSpacing);
+        const childY = parent.position.y + nodeHeight + 40;
+        
+        const childNode = layoutedNodes.find(n => n.id === child.id);
+        if (childNode) {
+          childNode.position = { x: childX, y: childY };
+        }
+      });
     });
 
     return layoutedNodes;
   }, []);
 
-  // Convert store nodes to ReactFlow format and apply layout
   useEffect(() => {
     if (storeNodes.length === 0) {
       setNodesState([]);
@@ -143,8 +212,14 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       return;
     }
 
-    // Create a signature of the node structure to detect changes
-    const nodeSignature = JSON.stringify(storeNodes.map(n => ({ id: n.id, children: n.children?.length || 0 })));
+    const createNodeSignature = (nodes: typeof storeNodes): string => {
+      return JSON.stringify(nodes.map(n => ({ 
+        id: n.id, 
+        children: n.children?.length || 0,
+        expanded: n.expanded 
+      })));
+    };
+    const nodeSignature = createNodeSignature(storeNodes);
     const structureChanged = previousStoreNodesRef.current !== nodeSignature;
 
     const { nodes: rfNodes, edges: rfEdges } = convertToReactFlowNodes(
@@ -152,7 +227,26 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       { highlightedNodeIds: highlightedSet }
     );
 
-    // Check if nodes are stacked (have same or very close positions)
+    const nodesWithStorePositions = rfNodes.map(rfNode => {
+      const storeNode = storeNodes.find(n => n.id === rfNode.id);
+      if (storeNode && storeNode.position) {
+        if (structureChanged) {
+          const wasVisibleBefore = previousStoreNodesRef.current !== '' && 
+            previousStoreNodesRef.current.includes(`"id":"${rfNode.id}"`);
+          
+          if (!wasVisibleBefore) {
+            return rfNode;
+          }
+        }
+        
+        return {
+          ...rfNode,
+          position: storeNode.position,
+        };
+      }
+      return rfNode;
+    });
+
     const checkIfStacked = (nodes: Node[]) => {
       if (nodes.length <= 1) return false;
       const positions = nodes.map(n => ({ x: n.position.x, y: n.position.y }));
@@ -161,48 +255,92 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       return uniquePositions.size < nodes.length * 0.5;
     };
 
-    const needsLayout = structureChanged || checkIfStacked(rfNodes);
+    const needsLayout = (structureChanged || checkIfStacked(nodesWithStorePositions)) && !isDraggingRef.current && !justFinishedDragRef.current;
 
     // Apply tree layout when structure changes, nodes are stacked, or on initial load
     if (needsLayout) {
-      const layoutedNodes = applyTreeLayout(rfNodes, rfEdges);
+      const preservePositions = !checkIfStacked(nodesWithStorePositions);
+      const layoutedNodes = applyTreeLayout(nodesWithStorePositions, rfEdges, preservePositions);
       setNodesState(layoutedNodes);
       setEdgesState(rfEdges);
+      
+      layoutedNodes.forEach((node) => {
+        updateNodePosition(node.id, node.position);
+      });
+      
       previousStoreNodesRef.current = nodeSignature;
 
-      // Update store with new positions
-      requestAnimationFrame(() => {
-        layoutedNodes.forEach((node) => {
-          updateNodePosition(node.id, node.position);
+      if (!preservePositions) {
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            fitView({ padding: 0.2, duration: 300 });
+          }, 150);
         });
-
-        // Fit view after layout
-        setTimeout(() => {
-          fitView({ padding: 0.2, duration: 300 });
-        }, 150);
-      });
+      }
     } else {
       // Just update nodes/edges without re-layout if structure hasn't changed and positions are good
-      setNodesState(rfNodes);
+      setNodesState(nodesWithStorePositions);
       setEdgesState(rfEdges);
     }
   }, [storeNodes, highlightedSet, setNodesState, setEdgesState, applyTreeLayout, updateNodePosition, fitView]);
 
-  // Handle node drag (update edges in real-time)
+  // Handle node drag - track dragging state and initial positions
   const onNodeDrag = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      // Force edges to update by triggering a re-render
-      // ReactFlow handles this automatically, but we ensure smooth updates
+      if (!isEditable) return;
+      
+      if (!isDraggingRef.current) {
+        isDraggingRef.current = true;
+        lastDragNodeRef.current = node;
+        
+        const selectedNodes = nodes.filter(n => n.selected);
+        
+        const nodesToTrack = selectedNodes.length > 1 ? selectedNodes : [node];
+        dragStartPositionsRef.current.clear();
+        
+        nodesToTrack.forEach(n => {
+          dragStartPositionsRef.current.set(n.id, { x: n.position.x, y: n.position.y });
+        });
+      }
+      
+      lastDragNodeRef.current = node;
     },
-    []
+    [nodes, isEditable]
   );
 
-  // Handle node drag end (save position in freeflow mode)
   const onNodeDragStop = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      updateNodePosition(node.id, node.position);
+      if (!isEditable) return;
+      
+      justFinishedDragRef.current = true;
+      isDraggingRef.current = false;
+      
+      requestAnimationFrame(() => {
+        setNodesState((currentNodes) => {
+          const selectedNodes = currentNodes.filter(n => n.selected);
+          
+          setTimeout(() => {
+            if (selectedNodes.length > 1) {
+              selectedNodes.forEach(selectedNode => {
+                updateNodePosition(selectedNode.id, selectedNode.position);
+              });
+            } else {
+              updateNodePosition(node.id, node.position);
+            }
+            
+            setTimeout(() => {
+              justFinishedDragRef.current = false;
+            }, 200);
+            
+            dragStartPositionsRef.current.clear();
+            lastDragNodeRef.current = null;
+          }, 0);
+          
+          return currentNodes;
+        });
+      });
     },
-    [updateNodePosition]
+    [isEditable, updateNodePosition, setNodesState]
   );
 
   // Handle node click (open folder)
@@ -242,7 +380,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
 
   // Handle viewport changes (debounced for performance)
   const onMove = useCallback(
-    (_: React.MouseEvent | null, viewport: Viewport) => {
+    (_: MouseEvent | TouchEvent | null, viewport: Viewport) => {
       // Clear existing timeout
       if (viewportUpdateTimeoutRef.current) {
         clearTimeout(viewportUpdateTimeoutRef.current);
@@ -286,8 +424,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     },
     [nodes, fitView, setSelectedAreaId]
   );
-
-  const isEditable = viewMode === 'edit';
 
   const handleSelectionChange = useCallback<OnSelectionChangeFunc>(
     ({ nodes: selectedNodes }) => {
@@ -359,7 +495,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
         elevateNodesOnSelect
         selectNodesOnDrag={false}
       >
-        <Background variant="dots" gap={18} size={1} color="var(--color-border)" />
+        <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="var(--color-border)" />
         <Controls position="bottom-left" />
         <MiniMap
           pannable
