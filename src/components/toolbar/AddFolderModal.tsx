@@ -93,7 +93,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
   };
 
   const convertDirectoryResponse = (dir: DirectoryResponse, isRoot = false, depth = 0): FolderNode => {
-    const shouldExpand = isRoot || depth === 0;
+    const shouldExpand = true;
     
     return {
       id: dir.id || generateNodeId(dir.path),
@@ -105,7 +105,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
       children: dir.children
         ? dir.children.map((child) => convertDirectoryResponse(child, false, depth + 1))
         : [],
-      expanded: shouldExpand, // Expand root and first-level children
+      expanded: shouldExpand,
       hasChildren: Boolean(dir.children && dir.children.length > 0),
       connector: 'local-fs',
     };

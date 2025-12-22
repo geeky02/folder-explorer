@@ -83,7 +83,7 @@ const FolderNode = memo(function FolderNode({
       >
         <Handle
           type="target"
-          position={Position.Top}
+          position={Position.Left}
         />
 
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -114,7 +114,7 @@ const FolderNode = memo(function FolderNode({
 
         <Handle
           type="source"
-          position={Position.Bottom}
+          position={Position.Right}
         />
       </motion.div>
 

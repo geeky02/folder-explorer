@@ -440,7 +440,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       // Last resort: try to load mock data with retry
       try {
         const directory = await retryFetch(() => fetchDirectory(), 2, 500);
-        const nodes = [convertDirectoryResponse(directory, true)]; 
+        const nodes = [convertDirectoryResponse(directory, true)];
         set({
           nodes,
           activeConnector: "local-fs",
@@ -585,7 +585,7 @@ function convertDirectoryResponse(
   isRoot = false,
   depth = 0
 ): FolderNode {
-  const shouldExpand = isRoot || depth === 0;
+  const shouldExpand = true;
   
   return {
     id: dir.id || generateNodeId(dir.path),

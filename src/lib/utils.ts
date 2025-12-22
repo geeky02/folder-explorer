@@ -1,7 +1,7 @@
 // Utility functions
 
-import { Edge, Node } from 'reactflow';
-import { FolderNode, FolderNodeVisualData, Position } from './types';
+import { Edge, Node, Position as HandlePosition } from "reactflow";
+import { FolderNode, FolderNodeVisualData, Position } from "./types";
 
 /**
  * Convert directory tree to ReactFlow nodes and edges
@@ -20,7 +20,12 @@ export function convertToReactFlowNodes(
 ): { nodes: Node<FolderNodeVisualData>[]; edges: Edge[] } {
   const reactFlowNodes: Node<FolderNodeVisualData>[] = [];
   const reactFlowEdges: Edge[] = [];
-  const { parentId, depth = 0, highlightedNodeIds, nodeCount = { current: 0 } } = options;
+  const {
+    parentId,
+    depth = 0,
+    highlightedNodeIds,
+    nodeCount = { current: 0 },
+  } = options;
 
   nodes.forEach((node) => {
     if (nodeCount.current >= MAX_RENDERED_NODES) {
@@ -44,9 +49,11 @@ export function convertToReactFlowNodes(
 
     reactFlowNodes.push({
       id: node.id,
-      type: 'folderNode',
+      type: "folderNode",
       position: node.position,
       data: nodeData,
+      targetPosition: HandlePosition.Left,
+      sourcePosition: HandlePosition.Right,
     });
     nodeCount.current++;
 
@@ -55,7 +62,7 @@ export function convertToReactFlowNodes(
         id: `e${parentId}-${node.id}`,
         source: parentId,
         target: node.id,
-        type: 'animatedDashed',
+        type: "animatedDashed",
         animated: false,
         style: {
           strokeWidth: 1,
@@ -63,12 +70,17 @@ export function convertToReactFlowNodes(
       });
     }
 
-    if (node.children && node.children.length > 0 && node.expanded === true && nodeCount.current < MAX_RENDERED_NODES) {
+    if (
+      node.children &&
+      node.children.length > 0 &&
+      node.expanded === true &&
+      nodeCount.current < MAX_RENDERED_NODES
+    ) {
       const childResult = convertToReactFlowNodes(node.children, {
         parentId: node.id,
         depth: depth + 1,
         highlightedNodeIds,
-        nodeCount, 
+        nodeCount,
       });
       reactFlowNodes.push(...childResult.nodes);
       reactFlowEdges.push(...childResult.edges);
@@ -82,16 +94,14 @@ export function convertToReactFlowNodes(
  * Generate unique ID for nodes
  */
 export function generateNodeId(path: string): string {
-  return path.replace(/[^a-zA-Z0-9]/g, '_');
+  return path.replace(/[^a-zA-Z0-9]/g, "_");
 }
 
 /**
  * Calculate distance between two positions
  */
 export function calculateDistance(pos1: Position, pos2: Position): number {
-  return Math.sqrt(
-    Math.pow(pos2.x - pos1.x, 2) + Math.pow(pos2.y - pos1.y, 2)
-  );
+  return Math.sqrt(Math.pow(pos2.x - pos1.x, 2) + Math.pow(pos2.y - pos1.y, 2));
 }
 
 /**
@@ -99,7 +109,7 @@ export function calculateDistance(pos1: Position, pos2: Position): number {
  */
 export function formatPath(path: string): string {
   if (path.length > 50) {
-    return '...' + path.slice(-47);
+    return "..." + path.slice(-47);
   }
   return path;
 }

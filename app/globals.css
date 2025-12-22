@@ -77,6 +77,14 @@ body {
   bottom: -3px !important;
 }
 
+.react-flow__handle-left {
+  left: -3px !important;
+}
+
+.react-flow__handle-right {
+  right: -3px !important;
+}
+
 /* Smooth node transitions - but not during drag */
 .react-flow__node {
   transition: box-shadow 0.2s ease !important;

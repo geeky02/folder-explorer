@@ -7,6 +7,7 @@ import ReactFlow, {
   Controls,
   MiniMap,
   Node,
+  Edge,
   useNodesState,
   useEdgesState,
   NodeTypes,
@@ -64,24 +65,29 @@ function FlowCanvas({ className }: FolderCanvasProps) {
 
   const [nodes, setNodesState, onNodesChange] = useNodesState([]);
   const [edges, setEdgesState, onEdgesChange] = useEdgesState([]);
-  const { fitView } = useReactFlow();
+  const { fitView, getNodes } = useReactFlow();
   const viewportUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previousStoreNodesRef = useRef<string>('');
   const isDraggingRef = useRef(false);
   const dragStartPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const lastDragNodeRef = useRef<Node | null>(null);
   const justFinishedDragRef = useRef(false);
+  // Track nodes that have been manually moved by the user (to preserve their positions)
+  const manuallyMovedNodesRef = useRef<Set<string>>(new Set());
 
   const highlightedSet = useMemo(
     () => new Set(highlightedNodeIds),
     [highlightedNodeIds]
   );
 
+  // Define isEditable early so it can be used in callbacks
   const isEditable = viewMode === 'edit';
 
-  const applyTreeLayout = useCallback((nodes: Node[], edges: any[], preservePositions = true) => {
+  // Apply tree layout - preserves user-dragged positions and only layouts children relative to parents
+  const applyTreeLayout = useCallback((nodes: Node[], edges: Edge[], preservePositions = true) => {
     if (nodes.length === 0) return nodes;
     if (edges.length === 0) {
+      // If no edges, just position nodes in a grid
       return nodes.map((node, index) => ({
         ...node,
         position: { x: index * 250, y: 100 },
@@ -91,7 +97,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
     const parentToChildren = new Map<string, string[]>(); // parent -> children
     const childToParent = new Map<string, string>(); // child -> parent
-    
+
     edges.forEach(edge => {
       if (!parentToChildren.has(edge.source)) {
         parentToChildren.set(edge.source, []);
@@ -100,11 +106,10 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       childToParent.set(edge.target, edge.source);
     });
 
-    const rootNodes = nodes.filter(node => !childToParent.has(node.id));
-    
+
     if (preservePositions) {
       const layoutedNodes = [...nodes];
-      
+
       parentToChildren.forEach((childIds, parentId) => {
         const parent = nodeMap.get(parentId);
         if (!parent || childIds.length === 0) return;
@@ -112,23 +117,39 @@ function FlowCanvas({ className }: FolderCanvasProps) {
         const children = childIds.map(id => nodeMap.get(id)).filter(Boolean) as Node[];
         if (children.length === 0) return;
 
-        const parentCenterX = parent.position.x + nodeWidth / 2;
-        
-        const childSpacing = 30;
-        const totalChildrenWidth = children.length * nodeWidth + (children.length - 1) * childSpacing;
-        const startX = parentCenterX - totalChildrenWidth / 2;
+        const parentCenterY = parent.position.y + nodeHeight / 2;
+        const childSpacing = 40;
+        const totalChildrenHeight = children.length * nodeHeight + (children.length - 1) * childSpacing;
+        const startY = parentCenterY - totalChildrenHeight / 2;
+        const expectedChildX = parent.position.x + nodeWidth + 60; // To the right of parent
 
         children.forEach((child, index) => {
-          const childX = startX + index * (nodeWidth + childSpacing);
-          const childY = parent.position.y + nodeHeight + 40; 
-          
           const childNode = layoutedNodes.find(n => n.id === child.id);
-          if (childNode) {
-            childNode.position = { x: childX, y: childY };
-            childNode.targetPosition = Position.Top;
-            childNode.sourcePosition = Position.Bottom;
+          if (!childNode) return;
+
+          if (manuallyMovedNodesRef.current.has(child.id)) {
+            childNode.targetPosition = Position.Left;
+            childNode.sourcePosition = Position.Right;
+            return;
           }
+
+          const expectedChildY = startY + index * (nodeHeight + childSpacing);
+          childNode.position = { x: expectedChildX, y: expectedChildY };
+
+          childNode.targetPosition = Position.Left;
+          childNode.sourcePosition = Position.Right;
         });
+
+        const parentNode = layoutedNodes.find(n => n.id === parentId);
+        if (parentNode) {
+          parentNode.targetPosition = Position.Left;
+          parentNode.sourcePosition = Position.Right;
+        }
+      });
+
+      layoutedNodes.forEach(node => {
+        if (!node.targetPosition) node.targetPosition = Position.Left;
+        if (!node.sourcePosition) node.sourcePosition = Position.Right;
       });
 
       return layoutedNodes;
@@ -139,9 +160,9 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     dagreGraph.setDefaultEdgeLabel(() => ({}));
 
     dagreGraph.setGraph({
-      rankdir: 'TB',
+      rankdir: 'LR',
       align: 'UL',
-      nodesep: 30,
+      nodesep: 60,
       ranksep: 40,
       edgesep: 10,
       acyclicer: 'greedy',
@@ -173,8 +194,8 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       return {
         ...node,
         position: { x, y },
-        targetPosition: Position.Top,
-        sourcePosition: Position.Bottom,
+        targetPosition: Position.Left,
+        sourcePosition: Position.Right,
       };
     });
 
@@ -185,18 +206,20 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       const children = childIds.map(id => nodeMap.get(id)).filter(Boolean) as Node[];
       if (children.length === 0) return;
 
-      const parentCenterX = parent.position.x + nodeWidth / 2;
-      const childSpacing = 30;
-      const totalChildrenWidth = children.length * nodeWidth + (children.length - 1) * childSpacing;
-      const startX = parentCenterX - totalChildrenWidth / 2;
+      const parentCenterY = parent.position.y + nodeHeight / 2;
+      const childSpacing = 40;
+      const totalChildrenHeight = children.length * nodeHeight + (children.length - 1) * childSpacing;
+      const startY = parentCenterY - totalChildrenHeight / 2;
 
       children.forEach((child, index) => {
-        const childX = startX + index * (nodeWidth + childSpacing);
-        const childY = parent.position.y + nodeHeight + 40;
-        
+        const childX = parent.position.x + nodeWidth + 60; // To the right of parent
+        const childY = startY + index * (nodeHeight + childSpacing);
+
         const childNode = layoutedNodes.find(n => n.id === child.id);
         if (childNode) {
           childNode.position = { x: childX, y: childY };
+          childNode.targetPosition = Position.Left;
+          childNode.sourcePosition = Position.Right;
         }
       });
     });
@@ -213,10 +236,10 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     }
 
     const createNodeSignature = (nodes: typeof storeNodes): string => {
-      return JSON.stringify(nodes.map(n => ({ 
-        id: n.id, 
+      return JSON.stringify(nodes.map(n => ({
+        id: n.id,
         children: n.children?.length || 0,
-        expanded: n.expanded 
+        expanded: n.expanded
       })));
     };
     const nodeSignature = createNodeSignature(storeNodes);
@@ -231,14 +254,14 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       const storeNode = storeNodes.find(n => n.id === rfNode.id);
       if (storeNode && storeNode.position) {
         if (structureChanged) {
-          const wasVisibleBefore = previousStoreNodesRef.current !== '' && 
+          const wasVisibleBefore = previousStoreNodesRef.current !== '' &&
             previousStoreNodesRef.current.includes(`"id":"${rfNode.id}"`);
-          
+
           if (!wasVisibleBefore) {
             return rfNode;
           }
         }
-        
+
         return {
           ...rfNode,
           position: storeNode.position,
@@ -257,17 +280,16 @@ function FlowCanvas({ className }: FolderCanvasProps) {
 
     const needsLayout = (structureChanged || checkIfStacked(nodesWithStorePositions)) && !isDraggingRef.current && !justFinishedDragRef.current;
 
-    // Apply tree layout when structure changes, nodes are stacked, or on initial load
     if (needsLayout) {
       const preservePositions = !checkIfStacked(nodesWithStorePositions);
       const layoutedNodes = applyTreeLayout(nodesWithStorePositions, rfEdges, preservePositions);
       setNodesState(layoutedNodes);
       setEdgesState(rfEdges);
-      
+
       layoutedNodes.forEach((node) => {
         updateNodePosition(node.id, node.position);
       });
-      
+
       previousStoreNodesRef.current = nodeSignature;
 
       if (!preservePositions) {
@@ -288,59 +310,67 @@ function FlowCanvas({ className }: FolderCanvasProps) {
   const onNodeDrag = useCallback(
     (_: React.MouseEvent, node: Node) => {
       if (!isEditable) return;
-      
+
       if (!isDraggingRef.current) {
         isDraggingRef.current = true;
         lastDragNodeRef.current = node;
-        
+
         const selectedNodes = nodes.filter(n => n.selected);
-        
+
         const nodesToTrack = selectedNodes.length > 1 ? selectedNodes : [node];
         dragStartPositionsRef.current.clear();
-        
+
         nodesToTrack.forEach(n => {
           dragStartPositionsRef.current.set(n.id, { x: n.position.x, y: n.position.y });
         });
       }
-      
+
       lastDragNodeRef.current = node;
     },
     [nodes, isEditable]
   );
 
   const onNodeDragStop = useCallback(
-    (_: React.MouseEvent, node: Node) => {
+    () => {
       if (!isEditable) return;
-      
+
       justFinishedDragRef.current = true;
       isDraggingRef.current = false;
-      
+
       requestAnimationFrame(() => {
-        setNodesState((currentNodes) => {
-          const selectedNodes = currentNodes.filter(n => n.selected);
-          
-          setTimeout(() => {
-            if (selectedNodes.length > 1) {
-              selectedNodes.forEach(selectedNode => {
-                updateNodePosition(selectedNode.id, selectedNode.position);
-              });
-            } else {
-              updateNodePosition(node.id, node.position);
+        const currentNodes = getNodes();
+
+        setTimeout(() => {
+          const storedPositions = new Map<string, { x: number; y: number }>();
+          const flatten = (list: typeof storeNodes) => {
+            list.forEach(n => {
+              storedPositions.set(n.id, n.position);
+              if (n.children) flatten(n.children);
+            });
+          };
+          flatten(storeNodes);
+
+          currentNodes.forEach(curr => {
+            const stored = storedPositions.get(curr.id);
+            if (!stored) return;
+            const dx = Math.abs(curr.position.x - stored.x);
+            const dy = Math.abs(curr.position.y - stored.y);
+            if (dx > 0.5 || dy > 0.5) {
+              updateNodePosition(curr.id, curr.position);
+              manuallyMovedNodesRef.current.add(curr.id);
             }
-            
-            setTimeout(() => {
-              justFinishedDragRef.current = false;
-            }, 200);
-            
-            dragStartPositionsRef.current.clear();
-            lastDragNodeRef.current = null;
-          }, 0);
-          
-          return currentNodes;
-        });
+          });
+
+          setTimeout(() => {
+            justFinishedDragRef.current = false;
+          }, 200);
+
+          dragStartPositionsRef.current.clear();
+          lastDragNodeRef.current = null;
+        }, 10);
       });
     },
-    [isEditable, updateNodePosition, setNodesState]
+    [isEditable, updateNodePosition, getNodes, storeNodes]
   );
 
   // Handle node click (open folder)

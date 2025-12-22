@@ -10,13 +10,14 @@ export default function Home() {
   const theme = useFlowStore((state) => state.theme);
   const isSidebarCollapsed = useFlowStore((state) => state.isSidebarCollapsed);
   const syncLayouts = useFlowStore((state) => state.syncLayouts);
-  const activeConnector = useFlowStore((state) => state.activeConnector);
-  const loadConnectorRoot = useFlowStore((state) => state.loadConnectorRoot);
+  // Removed automatic folder loading - canvas starts empty, user can add folders manually
+  // const activeConnector = useFlowStore((state) => state.activeConnector);
+  // const loadConnectorRoot = useFlowStore((state) => state.loadConnectorRoot);
 
-  // Fetch directory structure from backend
-  useEffect(() => {
-    loadConnectorRoot(activeConnector);
-  }, [activeConnector, loadConnectorRoot]);
+  // Fetch directory structure from backend - DISABLED: Canvas starts empty
+  // useEffect(() => {
+  //   loadConnectorRoot(activeConnector);
+  // }, [activeConnector, loadConnectorRoot]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
