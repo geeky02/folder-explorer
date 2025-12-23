@@ -1,5 +1,3 @@
-// Zustand store for managing application state
-
 import { create } from "zustand";
 import {
   FolderNode,
@@ -586,7 +584,7 @@ function convertDirectoryResponse(
   depth = 0
 ): FolderNode {
   const shouldExpand = true;
-  
+
   return {
     id: dir.id || generateNodeId(dir.path),
     name: dir.name,
@@ -595,7 +593,9 @@ function convertDirectoryResponse(
     color: dir.color || "#e0e0e0",
     position: dir.position || { x: 0, y: 0 },
     children: dir.children
-      ? dir.children.map((child) => convertDirectoryResponse(child, false, depth + 1))
+      ? dir.children.map((child) =>
+          convertDirectoryResponse(child, false, depth + 1)
+        )
       : [],
     expanded: shouldExpand,
     hasChildren: Boolean(dir.children && dir.children.length > 0),

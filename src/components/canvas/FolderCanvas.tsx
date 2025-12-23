@@ -31,12 +31,10 @@ import FolderNodeComponent from './FolderNode';
 import AreaGroup from './AreaGroup';
 import AnimatedDashedEdge from './AnimatedDashedEdge';
 
-// Custom node types
 const nodeTypes: NodeTypes = {
   folderNode: FolderNodeComponent,
 };
 
-// Custom edge types
 const edgeTypes: EdgeTypes = {
   animatedDashed: AnimatedDashedEdge,
 };
@@ -45,7 +43,6 @@ interface FolderCanvasProps {
   className?: string;
 }
 
-// Node dimensions for layout calculation
 const nodeWidth = 140;
 const nodeHeight = 50;
 
@@ -72,7 +69,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
   const dragStartPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const lastDragNodeRef = useRef<Node | null>(null);
   const justFinishedDragRef = useRef(false);
-  // Track nodes that have been manually moved by the user (to preserve their positions)
   const manuallyMovedNodesRef = useRef<Set<string>>(new Set());
 
   const highlightedSet = useMemo(
@@ -80,90 +76,121 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     [highlightedNodeIds]
   );
 
-  // Define isEditable early so it can be used in callbacks
   const isEditable = viewMode === 'edit';
 
-  // Apply tree layout - preserves user-dragged positions and only layouts children relative to parents
   const applyTreeLayout = useCallback((nodes: Node[], edges: Edge[], preservePositions = true) => {
     if (nodes.length === 0) return nodes;
     if (edges.length === 0) {
-      // If no edges, just position nodes in a grid
       return nodes.map((node, index) => ({
         ...node,
         position: { x: index * 250, y: 100 },
+        targetPosition: Position.Left,
+        sourcePosition: Position.Right,
       }));
     }
 
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
     const parentToChildren = new Map<string, string[]>(); // parent -> children
-    const childToParent = new Map<string, string>(); // child -> parent
 
     edges.forEach(edge => {
       if (!parentToChildren.has(edge.source)) {
         parentToChildren.set(edge.source, []);
       }
       parentToChildren.get(edge.source)!.push(edge.target);
-      childToParent.set(edge.target, edge.source);
     });
 
+    const manuallyMovedWithDescendants = new Set<string>();
+    const addDescendants = (nodeId: string) => {
+      manuallyMovedWithDescendants.add(nodeId);
+      const children = parentToChildren.get(nodeId) || [];
+      children.forEach(childId => {
+        addDescendants(childId);
+      });
+    };
+    manuallyMovedNodesRef.current.forEach(nodeId => {
+      addDescendants(nodeId);
+    });
 
-    if (preservePositions) {
-      const layoutedNodes = [...nodes];
+    if (preservePositions && manuallyMovedWithDescendants.size > 0) {
+      const nodesToLayout = nodes.filter(n => !manuallyMovedWithDescendants.has(n.id));
+      const edgesToLayout = edges.filter(
+        e => !manuallyMovedWithDescendants.has(e.source) && !manuallyMovedWithDescendants.has(e.target)
+      );
 
-      parentToChildren.forEach((childIds, parentId) => {
-        const parent = nodeMap.get(parentId);
-        if (!parent || childIds.length === 0) return;
+      if (nodesToLayout.length > 0 && edgesToLayout.length > 0) {
+        const dagreGraph = new dagre.graphlib.Graph();
+        dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-        const children = childIds.map(id => nodeMap.get(id)).filter(Boolean) as Node[];
-        if (children.length === 0) return;
-
-        const parentCenterY = parent.position.y + nodeHeight / 2;
-        const childSpacing = 40;
-        const totalChildrenHeight = children.length * nodeHeight + (children.length - 1) * childSpacing;
-        const startY = parentCenterY - totalChildrenHeight / 2;
-        const expectedChildX = parent.position.x + nodeWidth + 60; // To the right of parent
-
-        children.forEach((child, index) => {
-          const childNode = layoutedNodes.find(n => n.id === child.id);
-          if (!childNode) return;
-
-          if (manuallyMovedNodesRef.current.has(child.id)) {
-            childNode.targetPosition = Position.Left;
-            childNode.sourcePosition = Position.Right;
-            return;
-          }
-
-          const expectedChildY = startY + index * (nodeHeight + childSpacing);
-          childNode.position = { x: expectedChildX, y: expectedChildY };
-
-          childNode.targetPosition = Position.Left;
-          childNode.sourcePosition = Position.Right;
+        dagreGraph.setGraph({
+          rankdir: 'LR',
+          align: 'UL',
+          nodesep: 80,
+          ranksep: 60,
+          edgesep: 10,
+          acyclicer: 'greedy',
+          ranker: 'tight-tree',
         });
 
-        const parentNode = layoutedNodes.find(n => n.id === parentId);
-        if (parentNode) {
-          parentNode.targetPosition = Position.Left;
-          parentNode.sourcePosition = Position.Right;
-        }
-      });
+        nodesToLayout.forEach((node) => {
+          dagreGraph.setNode(node.id, {
+            width: nodeWidth,
+            height: nodeHeight,
+          });
+        });
 
-      layoutedNodes.forEach(node => {
-        if (!node.targetPosition) node.targetPosition = Position.Left;
-        if (!node.sourcePosition) node.sourcePosition = Position.Right;
-      });
+        edgesToLayout.forEach((edge) => {
+          dagreGraph.setEdge(edge.source, edge.target);
+        });
 
-      return layoutedNodes;
+        dagre.layout(dagreGraph);
+
+        const layoutedNodes = nodes.map((node) => {
+          if (manuallyMovedWithDescendants.has(node.id)) {
+            return {
+              ...node,
+              targetPosition: Position.Left,
+              sourcePosition: Position.Right,
+            };
+          }
+
+          const nodeWithPosition = dagreGraph.node(node.id);
+          if (!nodeWithPosition) {
+            return {
+              ...node,
+              targetPosition: Position.Left,
+              sourcePosition: Position.Right,
+            };
+          }
+
+          const x = nodeWithPosition.x - nodeWidth / 2;
+          const y = nodeWithPosition.y - nodeHeight / 2;
+
+          return {
+            ...node,
+            position: { x, y },
+            targetPosition: Position.Left,
+            sourcePosition: Position.Right,
+          };
+        });
+
+        return layoutedNodes;
+      }
     }
 
-    // Fallback: Full Dagre layout (only used on initial load or when nodes are stacked)
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+    const totalNodes = nodes.length;
+    const maxChildren = Math.max(...Array.from(parentToChildren.values()).map(children => children.length), 0);
+
+    const nodesep = totalNodes > 50 ? 100 : totalNodes > 20 ? 80 : 60;
+    const ranksep = maxChildren > 10 ? 80 : maxChildren > 5 ? 60 : 40;
 
     dagreGraph.setGraph({
       rankdir: 'LR',
       align: 'UL',
-      nodesep: 60,
-      ranksep: 40,
+      nodesep,
+      ranksep,
       edgesep: 10,
       acyclicer: 'greedy',
       ranker: 'tight-tree',
@@ -185,7 +212,11 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     const layoutedNodes = nodes.map((node) => {
       const nodeWithPosition = dagreGraph.node(node.id);
       if (!nodeWithPosition) {
-        return node;
+        return {
+          ...node,
+          targetPosition: Position.Left,
+          sourcePosition: Position.Right,
+        };
       }
 
       const x = nodeWithPosition.x - nodeWidth / 2;
@@ -197,31 +228,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
         targetPosition: Position.Left,
         sourcePosition: Position.Right,
       };
-    });
-
-    parentToChildren.forEach((childIds, parentId) => {
-      const parent = nodeMap.get(parentId);
-      if (!parent || childIds.length === 0) return;
-
-      const children = childIds.map(id => nodeMap.get(id)).filter(Boolean) as Node[];
-      if (children.length === 0) return;
-
-      const parentCenterY = parent.position.y + nodeHeight / 2;
-      const childSpacing = 40;
-      const totalChildrenHeight = children.length * nodeHeight + (children.length - 1) * childSpacing;
-      const startY = parentCenterY - totalChildrenHeight / 2;
-
-      children.forEach((child, index) => {
-        const childX = parent.position.x + nodeWidth + 60; // To the right of parent
-        const childY = startY + index * (nodeHeight + childSpacing);
-
-        const childNode = layoutedNodes.find(n => n.id === child.id);
-        if (childNode) {
-          childNode.position = { x: childX, y: childY };
-          childNode.targetPosition = Position.Left;
-          childNode.sourcePosition = Position.Right;
-        }
-      });
     });
 
     return layoutedNodes;
@@ -281,7 +287,8 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     const needsLayout = (structureChanged || checkIfStacked(nodesWithStorePositions)) && !isDraggingRef.current && !justFinishedDragRef.current;
 
     if (needsLayout) {
-      const preservePositions = !checkIfStacked(nodesWithStorePositions);
+      const isLargeTree = nodesWithStorePositions.length > 20;
+      const preservePositions = !checkIfStacked(nodesWithStorePositions) && !structureChanged && !isLargeTree;
       const layoutedNodes = applyTreeLayout(nodesWithStorePositions, rfEdges, preservePositions);
       setNodesState(layoutedNodes);
       setEdgesState(rfEdges);
@@ -300,13 +307,11 @@ function FlowCanvas({ className }: FolderCanvasProps) {
         });
       }
     } else {
-      // Just update nodes/edges without re-layout if structure hasn't changed and positions are good
       setNodesState(nodesWithStorePositions);
       setEdgesState(rfEdges);
     }
   }, [storeNodes, highlightedSet, setNodesState, setEdgesState, applyTreeLayout, updateNodePosition, fitView]);
 
-  // Handle node drag - track dragging state and initial positions
   const onNodeDrag = useCallback(
     (_: React.MouseEvent, node: Node) => {
       if (!isEditable) return;

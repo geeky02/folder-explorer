@@ -10,14 +10,7 @@ export default function Home() {
   const theme = useFlowStore((state) => state.theme);
   const isSidebarCollapsed = useFlowStore((state) => state.isSidebarCollapsed);
   const syncLayouts = useFlowStore((state) => state.syncLayouts);
-  // Removed automatic folder loading - canvas starts empty, user can add folders manually
-  // const activeConnector = useFlowStore((state) => state.activeConnector);
-  // const loadConnectorRoot = useFlowStore((state) => state.loadConnectorRoot);
 
-  // Fetch directory structure from backend - DISABLED: Canvas starts empty
-  // useEffect(() => {
-  //   loadConnectorRoot(activeConnector);
-  // }, [activeConnector, loadConnectorRoot]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -31,9 +24,8 @@ export default function Home() {
     <div className="flex h-screen w-screen overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-text)]">
       <SidePanel />
       <div
-        className={`flex flex-1 flex-col transition-all duration-300 ${
-          isSidebarCollapsed ? 'pl-2' : 'pl-0'
-        }`}
+        className={`flex flex-1 flex-col transition-all duration-300 ${isSidebarCollapsed ? 'pl-2' : 'pl-0'
+          }`}
       >
         <Toolbar />
         <div className="relative flex-1">
