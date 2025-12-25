@@ -16,7 +16,6 @@ import ReactFlow, {
   addEdge,
   ReactFlowProvider,
   useReactFlow,
-  Panel,
   OnSelectionChangeFunc,
   Viewport,
   ConnectionLineType,
@@ -28,7 +27,6 @@ import { useFlowStore } from '@/store/useFlowStore';
 import { Area } from '@/lib/types';
 import { convertToReactFlowNodes } from '@/lib/utils';
 import FolderNodeComponent from './FolderNode';
-import AreaGroup from './AreaGroup';
 import AnimatedDashedEdge from './AnimatedDashedEdge';
 
 const nodeTypes: NodeTypes = {
@@ -49,7 +47,6 @@ const nodeHeight = 50;
 function FlowCanvas({ className }: FolderCanvasProps) {
   const {
     nodes: storeNodes,
-    areas,
     viewMode,
     updateNodePosition,
     setZoom,
@@ -57,7 +54,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     setSelectedAreaId,
     setSelectedNodeId,
     highlightedNodeIds,
-    activeConnector,
   } = useFlowStore();
 
   const [nodes, setNodesState, onNodesChange] = useNodesState([]);
@@ -78,7 +74,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
 
   const isEditable = viewMode === 'edit';
 
-  const applyTreeLayout = useCallback((nodes: Node[], edges: Edge[], preservePositions = true) => {
+  const applyTreeLayout = useCallback((nodes: Node[], edges: Edge[], preservePositions = true, fixedNodeIds?: Set<string>) => {
     if (nodes.length === 0) return nodes;
     if (edges.length === 0) {
       return nodes.map((node, index) => ({
@@ -99,9 +95,14 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       parentToChildren.get(edge.source)!.push(edge.target);
     });
 
+    // Build set of nodes to preserve positions for
+    const nodesToPreserve = new Set<string>();
+    
+    // Add manually moved nodes and their descendants
     const manuallyMovedWithDescendants = new Set<string>();
     const addDescendants = (nodeId: string) => {
       manuallyMovedWithDescendants.add(nodeId);
+      nodesToPreserve.add(nodeId);
       const children = parentToChildren.get(nodeId) || [];
       children.forEach(childId => {
         addDescendants(childId);
@@ -111,10 +112,25 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       addDescendants(nodeId);
     });
 
-    if (preservePositions && manuallyMovedWithDescendants.size > 0) {
-      const nodesToLayout = nodes.filter(n => !manuallyMovedWithDescendants.has(n.id));
+    // Add fixed nodes (parents that should stay in place during expand/collapse)
+    if (fixedNodeIds) {
+      fixedNodeIds.forEach(nodeId => {
+        nodesToPreserve.add(nodeId);
+        // Also preserve existing children of fixed nodes (they were already positioned)
+        const existingChildren = parentToChildren.get(nodeId) || [];
+        existingChildren.forEach(childId => {
+          // Only preserve if child already exists in nodes (was visible before)
+          if (nodes.find(n => n.id === childId)) {
+            nodesToPreserve.add(childId);
+          }
+        });
+      });
+    }
+
+    if (preservePositions && nodesToPreserve.size > 0) {
+      const nodesToLayout = nodes.filter(n => !nodesToPreserve.has(n.id));
       const edgesToLayout = edges.filter(
-        e => !manuallyMovedWithDescendants.has(e.source) && !manuallyMovedWithDescendants.has(e.target)
+        e => !nodesToPreserve.has(e.source) && !nodesToPreserve.has(e.target)
       );
 
       if (nodesToLayout.length > 0 && edgesToLayout.length > 0) {
@@ -145,7 +161,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
         dagre.layout(dagreGraph);
 
         const layoutedNodes = nodes.map((node) => {
-          if (manuallyMovedWithDescendants.has(node.id)) {
+          if (nodesToPreserve.has(node.id)) {
             return {
               ...node,
               targetPosition: Position.Left,
@@ -246,36 +262,104 @@ function FlowCanvas({ className }: FolderCanvasProps) {
         id: n.id,
         children: n.children?.length || 0,
         expanded: n.expanded
+        // Note: We don't include position in signature to avoid layout on position-only changes
       })));
     };
     const nodeSignature = createNodeSignature(storeNodes);
     const structureChanged = previousStoreNodesRef.current !== nodeSignature;
+
+    // Find nodes that changed their expanded state (for preserving parent positions)
+    // When a folder is expanded/collapsed, we want to keep the parent in place
+    // and only reposition newly visible/hidden children
+    const fixedNodeIds = new Set<string>();
+    if (structureChanged && previousStoreNodesRef.current !== '') {
+      try {
+        const previousNodes = JSON.parse(previousStoreNodesRef.current) as Array<{ id: string; expanded?: boolean; children?: number }>;
+        const previousNodeMap = new Map(previousNodes.map(n => [n.id, n]));
+        
+        // Helper to recursively find all visible descendants
+        const getVisibleDescendantIds = (node: typeof storeNodes[0], visited = new Set<string>()): string[] => {
+          if (visited.has(node.id)) return [];
+          visited.add(node.id);
+          const ids: string[] = [];
+          if (node.expanded && node.children) {
+            node.children.forEach(child => {
+              ids.push(child.id);
+              ids.push(...getVisibleDescendantIds(child, visited));
+            });
+          }
+          return ids;
+        };
+        
+        storeNodes.forEach(node => {
+          const prevNode = previousNodeMap.get(node.id);
+          if (prevNode) {
+            // Always preserve the parent's position
+            fixedNodeIds.add(node.id);
+            
+            // If this node was expanded before, preserve all its children that were visible
+            if (prevNode.expanded && node.children) {
+              node.children.forEach(child => {
+                // If child has a position, it was visible before - preserve it
+                if (child.position && (child.position.x !== 0 || child.position.y !== 0)) {
+                  fixedNodeIds.add(child.id);
+                  // Also preserve grandchildren that were visible
+                  if (child.expanded && child.children) {
+                    child.children.forEach(grandchild => {
+                      if (grandchild.position && (grandchild.position.x !== 0 || grandchild.position.y !== 0)) {
+                        fixedNodeIds.add(grandchild.id);
+                      }
+                    });
+                  }
+                }
+              });
+            }
+          } else {
+            // New node - don't fix it, let layout position it
+          }
+        });
+      } catch (e) {
+        // If parsing fails, don't fix any nodes
+      }
+    }
 
     const { nodes: rfNodes, edges: rfEdges } = convertToReactFlowNodes(
       storeNodes,
       { highlightedNodeIds: highlightedSet }
     );
 
-    const nodesWithStorePositions = rfNodes.map(rfNode => {
-      const storeNode = storeNodes.find(n => n.id === rfNode.id);
-      if (storeNode && storeNode.position) {
-        if (structureChanged) {
-          const wasVisibleBefore = previousStoreNodesRef.current !== '' &&
-            previousStoreNodesRef.current.includes(`"id":"${rfNode.id}"`);
-
-          if (!wasVisibleBefore) {
-            return rfNode;
+    // Helper to find a node in the store tree (including nested children)
+    const findStoreNode = (nodeId: string): typeof storeNodes[0] | undefined => {
+      const findInTree = (nodes: typeof storeNodes): typeof storeNodes[0] | undefined => {
+        for (const node of nodes) {
+          if (node.id === nodeId) return node;
+          if (node.children) {
+            const found = findInTree(node.children);
+            if (found) return found;
           }
         }
+        return undefined;
+      };
+      return findInTree(storeNodes);
+    };
 
+    const nodesWithStorePositions = rfNodes.map(rfNode => {
+      // Find node in store (including nested children)
+      const storeNode = findStoreNode(rfNode.id);
+      
+      // If node has a stored position, always use it (preserves manually adjusted positions)
+      if (storeNode && storeNode.position) {
         return {
           ...rfNode,
           position: storeNode.position,
         };
       }
+      
+      // If no stored position, use the default from rfNode
       return rfNode;
     });
 
+    // Check if nodes are stacked (have same or very close positions)
     const checkIfStacked = (nodes: Node[]) => {
       if (nodes.length <= 1) return false;
       const positions = nodes.map(n => ({ x: n.position.x, y: n.position.y }));
@@ -284,22 +368,143 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       return uniquePositions.size < nodes.length * 0.5;
     };
 
+    // Check if this is just an expand/collapse operation (not initial load or stacked nodes)
+    const isInitialLoad = previousStoreNodesRef.current === '';
+    const isJustExpandCollapse = structureChanged && !isInitialLoad && !checkIfStacked(nodesWithStorePositions);
+    
+    // Don't layout if:
+    // 1. We just finished dragging (positions are being saved)
+    // 2. Currently dragging
+    // Layout should only run when structure actually changes (expand/collapse) or nodes are stacked
+    // NOT when only positions have changed (user dragging)
     const needsLayout = (structureChanged || checkIfStacked(nodesWithStorePositions)) && !isDraggingRef.current && !justFinishedDragRef.current;
 
-    if (needsLayout) {
+    // For expand/collapse, use simple relative positioning without Dagre
+    if (isJustExpandCollapse) {
+      // Build parent-to-children map
+      const parentToChildren = new Map<string, string[]>();
+      rfEdges.forEach(edge => {
+        if (!parentToChildren.has(edge.source)) {
+          parentToChildren.set(edge.source, []);
+        }
+        parentToChildren.get(edge.source)!.push(edge.target);
+      });
+
+      // Position newly visible children relative to their parent
+      // nodesWithStorePositions already has positions from store, so we can use them directly
+      const positionedNodes = nodesWithStorePositions.map(node => {
+        // Always preserve manually moved nodes - they should never be repositioned
+        if (manuallyMovedNodesRef.current.has(node.id)) {
+          // Use position from nodesWithStorePositions (already retrieved from store)
+          if (node.position && (node.position.x !== 0 || node.position.y !== 0)) {
+            return {
+              ...node,
+              targetPosition: Position.Left,
+              sourcePosition: Position.Right,
+            };
+          }
+        }
+
+        // If node already has a position from store (not default 0,0), ALWAYS preserve it
+        // nodesWithStorePositions already retrieved the position from store, so use it
+        if (node.position && (node.position.x !== 0 || node.position.y !== 0)) {
+          return {
+            ...node,
+            targetPosition: Position.Left,
+            sourcePosition: Position.Right,
+          };
+        }
+
+        // For newly visible children (not visible before), position them relative to parent
+        const parentEdge = rfEdges.find(e => e.target === node.id);
+        if (parentEdge) {
+          const parentNode = nodesWithStorePositions.find(n => n.id === parentEdge.source);
+          if (parentNode && parentNode.position) {
+            const siblings = parentToChildren.get(parentEdge.source) || [];
+            const siblingIndex = siblings.indexOf(node.id);
+            const totalSiblings = siblings.length;
+            
+            // Position children to the right of parent, vertically centered
+            const parentX = parentNode.position.x + nodeWidth + 80; // 80px spacing
+            const parentY = parentNode.position.y;
+            const verticalSpacing = 60;
+            const totalHeight = (totalSiblings - 1) * verticalSpacing;
+            const startY = parentY - totalHeight / 2;
+            
+            const newPosition = {
+              x: parentX,
+              y: startY + siblingIndex * verticalSpacing,
+            };
+            
+            return {
+              ...node,
+              position: newPosition,
+              targetPosition: Position.Left,
+              sourcePosition: Position.Right,
+            };
+          }
+        }
+
+        // Fallback: keep existing position or use default
+        return {
+          ...node,
+          targetPosition: Position.Left,
+          sourcePosition: Position.Right,
+        };
+      });
+
+      setNodesState(positionedNodes);
+      setEdgesState(rfEdges);
+
+      // Save positions ONLY for newly positioned nodes (ones that didn't have stored positions)
+      // NEVER overwrite existing stored positions - they represent user's manual adjustments
+      positionedNodes.forEach((node) => {
+        const storeNode = findStoreNode(node.id);
+        const hasStoredPosition = storeNode && storeNode.position && 
+          (storeNode.position.x !== 0 || storeNode.position.y !== 0);
+        
+        // Only save position if:
+        // 1. Node doesn't have a stored position yet (newly visible), OR
+        // 2. Node is manually moved (to ensure it's persisted)
+        // NEVER save if node already has a stored position (would overwrite user's adjustments)
+        if (!hasStoredPosition || manuallyMovedNodesRef.current.has(node.id)) {
+          // Only save if this is a newly calculated position (not from store)
+          // Check if the position differs from stored to avoid unnecessary updates
+          if (!hasStoredPosition || 
+              (storeNode && (
+                Math.abs(node.position.x - storeNode.position.x) > 0.5 ||
+                Math.abs(node.position.y - storeNode.position.y) > 0.5
+              ))) {
+            updateNodePosition(node.id, node.position);
+          }
+        }
+      });
+
+      previousStoreNodesRef.current = nodeSignature;
+    } else if (needsLayout) {
+      // For initial load or stacked nodes, use full Dagre layout
       const isLargeTree = nodesWithStorePositions.length > 20;
       const preservePositions = !checkIfStacked(nodesWithStorePositions) && !structureChanged && !isLargeTree;
-      const layoutedNodes = applyTreeLayout(nodesWithStorePositions, rfEdges, preservePositions);
+      
+      const layoutedNodes = applyTreeLayout(
+        nodesWithStorePositions, 
+        rfEdges, 
+        preservePositions, 
+        structureChanged ? fixedNodeIds : undefined
+      );
       setNodesState(layoutedNodes);
       setEdgesState(rfEdges);
 
+      // Update store with new positions IMMEDIATELY (synchronously) to prevent old positions from being used
       layoutedNodes.forEach((node) => {
         updateNodePosition(node.id, node.position);
       });
 
+      // Update signature AFTER positions are saved to ensure next render uses new positions
       previousStoreNodesRef.current = nodeSignature;
 
-      if (!preservePositions) {
+      // Only fit view on initial load, not when just expanding/collapsing
+      if (isInitialLoad && !preservePositions) {
         requestAnimationFrame(() => {
           setTimeout(() => {
             fitView({ padding: 0.2, duration: 300 });
@@ -307,21 +512,26 @@ function FlowCanvas({ className }: FolderCanvasProps) {
         });
       }
     } else {
+      // Just update nodes/edges without re-layout if structure hasn't changed and positions are good
       setNodesState(nodesWithStorePositions);
       setEdgesState(rfEdges);
     }
   }, [storeNodes, highlightedSet, setNodesState, setEdgesState, applyTreeLayout, updateNodePosition, fitView]);
 
+  // Handle node drag - track dragging state and initial positions
   const onNodeDrag = useCallback(
     (_: React.MouseEvent, node: Node) => {
       if (!isEditable) return;
 
+      // On first drag, initialize tracking
       if (!isDraggingRef.current) {
         isDraggingRef.current = true;
         lastDragNodeRef.current = node;
 
+        // Get all selected nodes
         const selectedNodes = nodes.filter(n => n.selected);
 
+        // Store initial positions of all selected nodes (or just the dragged one if none selected)
         const nodesToTrack = selectedNodes.length > 1 ? selectedNodes : [node];
         dragStartPositionsRef.current.clear();
 
@@ -330,22 +540,28 @@ function FlowCanvas({ className }: FolderCanvasProps) {
         });
       }
 
+      // If multiple nodes are selected, ReactFlow handles moving them together
+      // We just need to track that dragging is happening
       lastDragNodeRef.current = node;
     },
     [nodes, isEditable]
   );
 
+  // Handle node drag end - save positions of all selected nodes
   const onNodeDragStop = useCallback(
     () => {
       if (!isEditable) return;
 
+      // Mark that we just finished dragging to prevent layout from resetting positions
       justFinishedDragRef.current = true;
       isDraggingRef.current = false;
 
+      // Use requestAnimationFrame to get the latest node positions after ReactFlow updates
       requestAnimationFrame(() => {
         const currentNodes = getNodes();
 
         setTimeout(() => {
+          // Build a map of stored positions for quick diff
           const storedPositions = new Map<string, { x: number; y: number }>();
           const flatten = (list: typeof storeNodes) => {
             list.forEach(n => {
@@ -355,17 +571,26 @@ function FlowCanvas({ className }: FolderCanvasProps) {
           };
           flatten(storeNodes);
 
+          // Update positions for any node that actually moved, and mark as manually moved
           currentNodes.forEach(curr => {
             const stored = storedPositions.get(curr.id);
-            if (!stored) return;
-            const dx = Math.abs(curr.position.x - stored.x);
-            const dy = Math.abs(curr.position.y - stored.y);
-            if (dx > 0.5 || dy > 0.5) {
+            if (stored) {
+              // Node has a stored position - check if it moved
+              const dx = Math.abs(curr.position.x - stored.x);
+              const dy = Math.abs(curr.position.y - stored.y);
+              if (dx > 0.5 || dy > 0.5) {
+                updateNodePosition(curr.id, curr.position);
+                manuallyMovedNodesRef.current.add(curr.id);
+              }
+            } else {
+              // Node doesn't have a stored position yet - save it and mark as manually moved
+              // This handles cases where nodes are dragged before they have positions saved
               updateNodePosition(curr.id, curr.position);
               manuallyMovedNodesRef.current.add(curr.id);
             }
           });
 
+          // Clear the flag after a delay to allow positions to be saved
           setTimeout(() => {
             justFinishedDragRef.current = false;
           }, 200);
@@ -460,6 +685,18 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     [nodes, fitView, setSelectedAreaId]
   );
 
+  // Listen for zoom requests from AreasMenu
+  useEffect(() => {
+    const handleZoomEvent = (event: CustomEvent<{ area: Area }>) => {
+      handleZoomToArea(event.detail.area);
+    };
+
+    window.addEventListener('zoomToArea', handleZoomEvent as EventListener);
+    return () => {
+      window.removeEventListener('zoomToArea', handleZoomEvent as EventListener);
+    };
+  }, [handleZoomToArea]);
+
   const handleSelectionChange = useCallback<OnSelectionChangeFunc>(
     ({ nodes: selectedNodes }) => {
       if (selectedNodes && selectedNodes.length > 0) {
@@ -475,26 +712,8 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     setSelectedNodeId(null);
   }, [setSelectedNodeId]);
 
-  const connectorLabelMap: Record<string, string> = {
-    'everything-sdk': 'Everything SDK (Windows)',
-    'local-fs': 'Local File System',
-    gdrive: 'Google Drive Connector',
-  };
-
   return (
     <div className={`relative w-full h-full ${className}`}>
-      {areas.length > 0 && (
-        <div className="absolute inset-0 z-0">
-          {areas.map((area) => (
-            <AreaGroup
-              key={area.id}
-              area={area}
-              onZoomToArea={handleZoomToArea}
-            />
-          ))}
-        </div>
-      )}
-
       <ReactFlow
         className="relative z-10"
         nodes={nodes}
@@ -539,19 +758,6 @@ function FlowCanvas({ className }: FolderCanvasProps) {
           }}
           maskColor="var(--color-app-bg)"
         />
-        <Panel position="bottom-right">
-          <div className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              Active Connector
-            </p>
-            <p className="text-sm font-medium text-slate-800">
-              {connectorLabelMap[activeConnector] ?? activeConnector}
-            </p>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Mode: {viewMode} • Layout: Freeflow
-            </p>
-          </div>
-        </Panel>
       </ReactFlow>
     </div>
   );

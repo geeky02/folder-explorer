@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import FolderCanvas from '@/components/canvas/FolderCanvas';
 import Toolbar from '@/components/toolbar/Toolbar';
 import SidePanel from '@/components/side-panel/SidePanel';
+import AreasMenu from '@/components/AreasMenu';
 import { useFlowStore } from '@/store/useFlowStore';
 
 export default function Home() {
@@ -30,6 +31,7 @@ export default function Home() {
         <Toolbar />
         <div className="relative flex-1">
           <FolderCanvas className="w-full h-full" />
+          <AreasMenu />
         </div>
       </div>
     </div>

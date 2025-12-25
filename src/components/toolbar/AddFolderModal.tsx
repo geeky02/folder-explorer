@@ -32,6 +32,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
   const modalRef = useRef<HTMLDivElement>(null);
   const addRootFolder = useFlowStore((state) => state.addRootFolder);
 
+  // Ensure we're mounted (client-side only)
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
@@ -39,6 +40,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
 
   useEffect(() => {
     if (isOpen) {
+      // Reset state when modal opens
       setCurrentPath(null);
       setCurrentFolder(null);
       setNavigationStack([]);
@@ -47,6 +49,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
     }
   }, [isOpen]);
 
+  // Close modal when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
@@ -63,6 +66,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
     };
   }, [isOpen, onClose]);
 
+  // Close on Escape key
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && isOpen) {
@@ -93,7 +97,8 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
   };
 
   const convertDirectoryResponse = (dir: DirectoryResponse, isRoot = false, depth = 0): FolderNode => {
-    const shouldExpand = true;
+    // Fully expand all nodes when folder is added (all depths expanded)
+    const shouldExpand = true; // Always expand all nodes
     
     return {
       id: dir.id || generateNodeId(dir.path),
@@ -105,7 +110,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
       children: dir.children
         ? dir.children.map((child) => convertDirectoryResponse(child, false, depth + 1))
         : [],
-      expanded: shouldExpand,
+      expanded: shouldExpand, // Fully expand all nodes
       hasChildren: Boolean(dir.children && dir.children.length > 0),
       connector: 'local-fs',
     };
@@ -119,6 +124,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
       setCurrentPath(path);
       setCurrentFolder(directory);
       
+      // Update navigation stack only if requested (not when going back/to breadcrumb)
       if (addToStack) {
         setNavigationStack(prev => [...prev, { name, path, type }]);
       }
@@ -131,10 +137,12 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
 
   const navigateBack = async () => {
     if (navigationStack.length <= 1) {
+      // Go back to drives list
       setCurrentPath(null);
       setCurrentFolder(null);
       setNavigationStack([]);
     } else {
+      // Go back one level
       const newStack = navigationStack.slice(0, -1);
       const previousItem = newStack[newStack.length - 1];
       setNavigationStack(newStack);
@@ -165,6 +173,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
     try {
       const folderNode = convertDirectoryResponse(currentFolder, true);
 
+      // Calculate position to avoid overlap with existing nodes
       const existingNodes = useFlowStore.getState().nodes;
       const offsetX = existingNodes.length * 400;
       const offsetY = 100;
@@ -227,6 +236,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
   };
 
   const handleNewFolder = () => {
+    // TODO: Implement new folder creation
     alert('New folder creation will be implemented soon');
   };
 
@@ -242,6 +252,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
         className="relative w-full max-w-lg mx-auto my-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-2xl flex flex-col"
         style={{ maxHeight: '90vh' }}
       >
+        {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-[var(--color-text)]">
             Select Folder
@@ -254,6 +265,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
           </button>
         </div>
 
+        {/* Current Location Badge */}
         {currentPath && currentFolder && (
           <div className="mb-4">
             <p className="text-xs text-[var(--color-text-muted)] mb-2">Current location:</p>
@@ -264,6 +276,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
           </div>
         )}
 
+        {/* Navigation - More locations */}
         {navigationStack.length > 0 && (
           <div className="mb-4 flex items-center gap-2">
             <button
@@ -290,12 +303,14 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
           </div>
         )}
 
+        {/* Error message */}
         {error && (
           <div className="mb-4 rounded-lg bg-rose-100 border border-rose-300 px-4 py-3 text-sm text-rose-800">
             {error}
           </div>
         )}
 
+        {/* Loading state */}
         {loading && (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-[var(--color-accent)]" />
@@ -305,9 +320,11 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
           </div>
         )}
 
+        {/* Content Area */}
         {!loading && (
           <div className="space-y-2 flex-1 min-h-0 flex flex-col">
             {currentPath === null ? (
+              // Drives list (initial view)
               <>
                 <p className="text-sm font-medium text-[var(--color-text-muted)] mb-3 flex-shrink-0">
                   Select a drive to navigate:
@@ -339,7 +356,9 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
                 </div>
               </>
             ) : (
+              // Folder contents (navigation view) - Google Drive style table
               <>
+                {/* Table Header */}
                 <div className="mb-2 border-b border-[var(--color-border)]">
                   <div className="grid grid-cols-[1fr_auto] gap-4 py-2 px-1">
                     <button
@@ -375,9 +394,11 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
                   </div>
                 </div>
 
+                {/* Table Content */}
                 <div className="overflow-y-auto flex-1 min-h-0">
                   {currentFolder && (
                     <div className="space-y-0">
+                      {/* Current folder row - selectable */}
                       <button
                         onClick={handleConfirmSelection}
                         className="w-full grid grid-cols-[1fr_auto] gap-4 py-3 px-3 rounded-lg hover:bg-[var(--color-surface-alt)] transition text-left border-2 border-[var(--color-accent)] bg-[var(--color-accent)]/5"
@@ -393,6 +414,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
                         </div>
                       </button>
                       
+                      {/* Child folders */}
                       {sortedFolders.length > 0 && (
                         <>
                           <div className="my-1"></div>
@@ -427,6 +449,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
           </div>
         )}
 
+        {/* Empty state */}
         {!loading && currentPath === null && drives.length === 0 && !error && (
           <div className="py-12 text-center">
             <p className="text-sm text-[var(--color-text-muted)]">
@@ -435,6 +458,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
           </div>
         )}
 
+        {/* Empty folder state */}
         {!loading && currentPath !== null && currentFolder && (!currentFolder.children || currentFolder.children.length === 0) && (
           <div className="py-12 text-center">
             <p className="text-sm text-[var(--color-text-muted)]">
@@ -443,6 +467,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
           </div>
         )}
 
+        {/* Footer with action buttons */}
         <div className="mt-6 pt-4 border-t border-[var(--color-border)] flex items-center justify-between">
           <button
             onClick={handleNewFolder}
@@ -473,6 +498,7 @@ export default function AddFolderModal({ isOpen, onClose }: AddFolderModalProps)
     </div>
   );
 
+  // Render modal in a portal at document root to ensure it's above everything
   return createPortal(modalContent, document.body);
 }
 

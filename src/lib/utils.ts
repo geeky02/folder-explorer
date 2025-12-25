@@ -12,6 +12,7 @@ interface ConvertOptions {
   highlightedNodeIds?: Set<string>;
 }
 
+// Maximum nodes to render at once for performance
 const MAX_RENDERED_NODES = 1000;
 
 export function convertToReactFlowNodes(
@@ -28,6 +29,7 @@ export function convertToReactFlowNodes(
   } = options;
 
   nodes.forEach((node) => {
+    // Performance check: stop if we've rendered too many nodes
     if (nodeCount.current >= MAX_RENDERED_NODES) {
       return;
     }
@@ -41,7 +43,7 @@ export function convertToReactFlowNodes(
       icon: node.icon,
       color: node.color,
       children: node.children,
-      expanded: node.expanded ?? false,
+      expanded: node.expanded ?? false, // Default to false for performance
       depth,
       childCount,
       isHighlighted,
@@ -52,6 +54,7 @@ export function convertToReactFlowNodes(
       type: "folderNode",
       position: node.position,
       data: nodeData,
+      // Set handle positions for horizontal layout (edges from right to left)
       targetPosition: HandlePosition.Left,
       sourcePosition: HandlePosition.Right,
     });
@@ -70,6 +73,7 @@ export function convertToReactFlowNodes(
       });
     }
 
+    // Only render children if node is expanded AND we haven't hit the limit
     if (
       node.children &&
       node.children.length > 0 &&
@@ -80,7 +84,7 @@ export function convertToReactFlowNodes(
         parentId: node.id,
         depth: depth + 1,
         highlightedNodeIds,
-        nodeCount,
+        nodeCount, // Pass the same counter object
       });
       reactFlowNodes.push(...childResult.nodes);
       reactFlowEdges.push(...childResult.edges);
@@ -112,4 +116,22 @@ export function formatPath(path: string): string {
     return "..." + path.slice(-47);
   }
   return path;
+}
+
+/**
+ * Find a node by ID recursively in a tree of nodes
+ */
+export function findNodeByIdRecursive(nodes: FolderNode[], id: string): FolderNode | undefined {
+  for (const node of nodes) {
+    if (node.id === id) {
+      return node;
+    }
+    if (node.children && node.children.length > 0) {
+      const found = findNodeByIdRecursive(node.children, id);
+      if (found) {
+        return found;
+      }
+    }
+  }
+  return undefined;
 }

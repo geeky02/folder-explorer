@@ -18,6 +18,10 @@ const FolderNode = memo(function FolderNode({
   const toggleNodeExpanded = useFlowStore((state) => state.toggleNodeExpanded);
   const setNodeExpanded = useFlowStore((state) => state.setNodeExpanded);
   const setHighlightedNodeIds = useFlowStore((state) => state.setHighlightedNodeIds);
+  const markAsArea = useFlowStore((state) => state.markAsArea);
+  const unmarkAsArea = useFlowStore((state) => state.unmarkAsArea);
+  const rootFolderIds = useFlowStore((state) => state.rootFolderIds);
+  const areas = useFlowStore((state) => state.areas);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -64,6 +68,21 @@ const FolderNode = memo(function FolderNode({
     setHighlightedNodeIds([id]);
     handleContextMenuClose();
   }, [id, setHighlightedNodeIds]);
+
+  const isRootFolder = rootFolderIds.has(id);
+  const isArea = areas.some((area) => area.id === id);
+  const canMarkAsArea = !isArea && !isRootFolder;
+  const canUnmarkAsArea = isArea && !isRootFolder;
+
+  const handleMarkAsArea = useCallback(() => {
+    markAsArea(id);
+    handleContextMenuClose();
+  }, [id, markAsArea]);
+
+  const handleUnmarkAsArea = useCallback(() => {
+    unmarkAsArea(id);
+    handleContextMenuClose();
+  }, [id, unmarkAsArea]);
 
   return (
     <>
@@ -143,6 +162,24 @@ const FolderNode = memo(function FolderNode({
               action: handleOpenFolder,
               icon: '📂',
             },
+            ...(canMarkAsArea
+              ? [
+                  {
+                    label: 'Mark as Area',
+                    action: handleMarkAsArea,
+                    icon: '📍',
+                  },
+                ]
+              : []),
+            ...(canUnmarkAsArea
+              ? [
+                  {
+                    label: 'Unmark as Area',
+                    action: handleUnmarkAsArea,
+                    icon: '❌',
+                  },
+                ]
+              : []),
             {
               label: 'Share (soon)',
               action: handleShare,
