@@ -198,10 +198,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     }));
   },
   unmarkAsArea: (folderId) => {
-    const state = get();
-    // Cannot unmark root folders
-    if (state.rootFolderIds.has(folderId)) return;
-
     set((current) => ({
       areas: current.areas.filter((area) => area.id !== folderId),
     }));
@@ -433,26 +429,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         position: { x: offsetX, y: offsetY },
       };
 
-      // Collect all descendant node IDs for the Area
-      const allNodeIds = collectAllDescendantIds(newNode);
-
-      // Create Area automatically for root folder
-      const newArea: Area = {
-        id: newNode.id,
-        name: `${newNode.name} Area`,
-        nodes: allNodeIds,
-        color: newNode.color || '#e0e0e0',
-        position: newNode.position,
-        size: { width: 200, height: 100 }, // Default size, will be calculated later
-      };
-
       // Add to root folder IDs set
       const newRootFolderIds = new Set(state.rootFolderIds);
       newRootFolderIds.add(newNode.id);
 
       return {
         nodes: [...state.nodes, newNode],
-        areas: [...state.areas, newArea],
         rootFolderIds: newRootFolderIds,
       };
     }),
@@ -494,23 +476,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       }
       // Track root folder IDs
       const rootIds = new Set(nodes.map((node) => node.id));
-      
-      // Create Areas for all root folders
-      const rootAreas: Area[] = nodes.map((node) => {
-        const allNodeIds = collectAllDescendantIds(node);
-        return {
-          id: node.id,
-          name: `${node.name} Area`,
-          nodes: allNodeIds,
-          color: node.color || '#e0e0e0',
-          position: node.position,
-          size: { width: 200, height: 100 },
-        };
-      });
 
       set({
         nodes,
-        areas: rootAreas,
         rootFolderIds: rootIds,
         activeConnector: connectorId,
         isLoadingNodes: false,
@@ -521,20 +489,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         const directory = await retryFetch(() => fetchDirectory(), 2, 500);
         const nodes = [convertDirectoryResponse(directory, true)]; // true = isRoot
         const rootIds = new Set(nodes.map((node) => node.id));
-        const rootAreas: Area[] = nodes.map((node) => {
-          const allNodeIds = collectAllDescendantIds(node);
-          return {
-            id: node.id,
-            name: `${node.name} Area`,
-            nodes: allNodeIds,
-            color: node.color || '#e0e0e0',
-            position: node.position,
-            size: { width: 200, height: 100 },
-          };
-        });
         set({
           nodes,
-          areas: rootAreas,
           rootFolderIds: rootIds,
           activeConnector: "local-fs",
           isLoadingNodes: false,

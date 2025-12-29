@@ -329,10 +329,16 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     );
 
     // Helper to find a node in the store tree (including nested children)
-    const findStoreNode = (nodeId: string): typeof storeNodes[0] | undefined => {
+    // Also verify by path to ensure we get the correct node even if IDs somehow conflict
+    const findStoreNode = (nodeId: string, verifyPath?: string): typeof storeNodes[0] | undefined => {
       const findInTree = (nodes: typeof storeNodes): typeof storeNodes[0] | undefined => {
         for (const node of nodes) {
-          if (node.id === nodeId) return node;
+          if (node.id === nodeId) {
+            // If verifyPath is provided, ensure the path matches (extra safety check)
+            if (!verifyPath || node.path === verifyPath) {
+              return node;
+            }
+          }
           if (node.children) {
             const found = findInTree(node.children);
             if (found) return found;
@@ -345,7 +351,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
 
     const nodesWithStorePositions = rfNodes.map(rfNode => {
       // Find node in store (including nested children)
-      const storeNode = findStoreNode(rfNode.id);
+      const storeNode = findStoreNode(rfNode.id, rfNode.data?.path);
       
       // If node has a stored position, always use it (preserves manually adjusted positions)
       if (storeNode && storeNode.position) {
@@ -391,25 +397,28 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       });
 
       // Position newly visible children relative to their parent
-      // nodesWithStorePositions already has positions from store, so we can use them directly
       const positionedNodes = nodesWithStorePositions.map(node => {
-        // Always preserve manually moved nodes - they should never be repositioned
-        if (manuallyMovedNodesRef.current.has(node.id)) {
-          // Use position from nodesWithStorePositions (already retrieved from store)
-          if (node.position && (node.position.x !== 0 || node.position.y !== 0)) {
+        const storeNode = findStoreNode(node.id, node.data?.path);
+        const hasStoredPosition = storeNode && storeNode.position && 
+          (storeNode.position.x !== 0 || storeNode.position.y !== 0);
+        const isManuallyMoved = manuallyMovedNodesRef.current.has(node.id);
+        
+        if (isManuallyMoved) {
+          const positionToUse = hasStoredPosition ? storeNode!.position : node.position;
+          if (positionToUse && (positionToUse.x !== 0 || positionToUse.y !== 0)) {
             return {
               ...node,
+              position: positionToUse,
               targetPosition: Position.Left,
               sourcePosition: Position.Right,
             };
           }
         }
 
-        // If node already has a position from store (not default 0,0), ALWAYS preserve it
-        // nodesWithStorePositions already retrieved the position from store, so use it
-        if (node.position && (node.position.x !== 0 || node.position.y !== 0)) {
+        if (hasStoredPosition) {
           return {
             ...node,
+            position: storeNode!.position,
             targetPosition: Position.Left,
             sourcePosition: Position.Right,
           };
@@ -456,25 +465,24 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       setNodesState(positionedNodes);
       setEdgesState(rfEdges);
 
-      // Save positions ONLY for newly positioned nodes (ones that didn't have stored positions)
-      // NEVER overwrite existing stored positions - they represent user's manual adjustments
       positionedNodes.forEach((node) => {
-        const storeNode = findStoreNode(node.id);
-        const hasStoredPosition = storeNode && storeNode.position && 
-          (storeNode.position.x !== 0 || storeNode.position.y !== 0);
+        // Use path verification to ensure we're updating the correct node
+        const storeNode = findStoreNode(node.id, node.data?.path);
         
-        // Only save position if:
-        // 1. Node doesn't have a stored position yet (newly visible), OR
-        // 2. Node is manually moved (to ensure it's persisted)
-        // NEVER save if node already has a stored position (would overwrite user's adjustments)
-        if (!hasStoredPosition || manuallyMovedNodesRef.current.has(node.id)) {
-          // Only save if this is a newly calculated position (not from store)
-          // Check if the position differs from stored to avoid unnecessary updates
-          if (!hasStoredPosition || 
-              (storeNode && (
-                Math.abs(node.position.x - storeNode.position.x) > 0.5 ||
-                Math.abs(node.position.y - storeNode.position.y) > 0.5
-              ))) {
+        if (!storeNode || (node.data?.path && storeNode.path !== node.data.path)) {
+          return;
+        }
+        
+        const hasStoredPosition = storeNode.position && 
+          (storeNode.position.x !== 0 || storeNode.position.y !== 0);
+        const isManuallyMoved = manuallyMovedNodesRef.current.has(node.id);
+        
+        if (!hasStoredPosition) {
+          updateNodePosition(node.id, node.position);
+        } else if (isManuallyMoved) {
+          const dx = Math.abs(node.position.x - storeNode.position.x);
+          const dy = Math.abs(node.position.y - storeNode.position.y);
+          if (dx > 0.5 || dy > 0.5) {
             updateNodePosition(node.id, node.position);
           }
         }
@@ -495,15 +503,12 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       setNodesState(layoutedNodes);
       setEdgesState(rfEdges);
 
-      // Update store with new positions IMMEDIATELY (synchronously) to prevent old positions from being used
       layoutedNodes.forEach((node) => {
         updateNodePosition(node.id, node.position);
       });
 
-      // Update signature AFTER positions are saved to ensure next render uses new positions
       previousStoreNodesRef.current = nodeSignature;
 
-      // Only fit view on initial load, not when just expanding/collapsing
       if (isInitialLoad && !preservePositions) {
         requestAnimationFrame(() => {
           setTimeout(() => {
@@ -562,10 +567,11 @@ function FlowCanvas({ className }: FolderCanvasProps) {
 
         setTimeout(() => {
           // Build a map of stored positions for quick diff
-          const storedPositions = new Map<string, { x: number; y: number }>();
+          // Use a map with both ID and path as key to ensure uniqueness
+          const storedPositions = new Map<string, { x: number; y: number; path?: string }>();
           const flatten = (list: typeof storeNodes) => {
             list.forEach(n => {
-              storedPositions.set(n.id, n.position);
+              storedPositions.set(n.id, { ...n.position, path: n.path });
               if (n.children) flatten(n.children);
             });
           };
@@ -574,8 +580,14 @@ function FlowCanvas({ className }: FolderCanvasProps) {
           // Update positions for any node that actually moved, and mark as manually moved
           currentNodes.forEach(curr => {
             const stored = storedPositions.get(curr.id);
+            const currPath = curr.data?.path;
+            
+            if (stored && stored.path && currPath && stored.path !== currPath) {
+              console.warn(`Path mismatch for node ${curr.id}: stored=${stored.path}, current=${currPath}`);
+              return;
+            }
+            
             if (stored) {
-              // Node has a stored position - check if it moved
               const dx = Math.abs(curr.position.x - stored.x);
               const dy = Math.abs(curr.position.y - stored.y);
               if (dx > 0.5 || dy > 0.5) {
@@ -583,14 +595,11 @@ function FlowCanvas({ className }: FolderCanvasProps) {
                 manuallyMovedNodesRef.current.add(curr.id);
               }
             } else {
-              // Node doesn't have a stored position yet - save it and mark as manually moved
-              // This handles cases where nodes are dragged before they have positions saved
               updateNodePosition(curr.id, curr.position);
               manuallyMovedNodesRef.current.add(curr.id);
             }
           });
 
-          // Clear the flag after a delay to allow positions to be saved
           setTimeout(() => {
             justFinishedDragRef.current = false;
           }, 200);

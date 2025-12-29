@@ -3,7 +3,7 @@
 import React, { useState, memo, useCallback } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { motion } from 'framer-motion';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, MapPin, X } from 'lucide-react';
 import { useFlowStore } from '@/store/useFlowStore';
 import ContextMenu from '../context-menu/ContextMenu';
 import { formatPath } from '@/lib/utils';
@@ -71,8 +71,8 @@ const FolderNode = memo(function FolderNode({
 
   const isRootFolder = rootFolderIds.has(id);
   const isArea = areas.some((area) => area.id === id);
-  const canMarkAsArea = !isArea && !isRootFolder;
-  const canUnmarkAsArea = isArea && !isRootFolder;
+  const canMarkAsArea = !isArea; // Allow any folder (including root) to be marked as Area
+  const canUnmarkAsArea = isArea; // Allow any Area to be unmarked
 
   const handleMarkAsArea = useCallback(() => {
     markAsArea(id);
@@ -117,18 +117,45 @@ const FolderNode = memo(function FolderNode({
               {data.label}
             </p>
           </div>
-          {hasChildren && (
-            <button
-              onClick={handleToggle}
-              className="rounded border border-gray-200 bg-white p-0.5 text-gray-500 hover:bg-gray-50 flex-shrink-0 transition-colors"
-            >
-              {isCollapsed ? (
-                <ChevronRight className="h-3 w-3" />
-              ) : (
-                <ChevronDown className="h-3 w-3" />
-              )}
-            </button>
-          )}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {/* Area button - visible on hover or when area is marked */}
+            {(isArea || viewMode === 'edit') && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isArea) {
+                    handleUnmarkAsArea();
+                  } else {
+                    handleMarkAsArea();
+                  }
+                }}
+                className={`rounded border p-0.5 flex-shrink-0 transition-colors ${
+                  isArea
+                    ? 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'
+                    : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50 opacity-0 group-hover:opacity-100'
+                }`}
+                title={isArea ? 'Unmark as Area' : 'Mark as Area'}
+              >
+                {isArea ? (
+                  <MapPin className="h-3 w-3 fill-current" />
+                ) : (
+                  <MapPin className="h-3 w-3" />
+                )}
+              </button>
+            )}
+            {hasChildren && (
+              <button
+                onClick={handleToggle}
+                className="rounded border border-gray-200 bg-white p-0.5 text-gray-500 hover:bg-gray-50 flex-shrink-0 transition-colors"
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="h-3 w-3" />
+                ) : (
+                  <ChevronDown className="h-3 w-3" />
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
         <Handle
@@ -162,24 +189,11 @@ const FolderNode = memo(function FolderNode({
               action: handleOpenFolder,
               icon: '📂',
             },
-            ...(canMarkAsArea
-              ? [
-                  {
-                    label: 'Mark as Area',
-                    action: handleMarkAsArea,
-                    icon: '📍',
-                  },
-                ]
-              : []),
-            ...(canUnmarkAsArea
-              ? [
-                  {
-                    label: 'Unmark as Area',
-                    action: handleUnmarkAsArea,
-                    icon: '❌',
-                  },
-                ]
-              : []),
+            {
+              label: isArea ? 'Unmark as Area' : 'Mark as Area',
+              action: isArea ? handleUnmarkAsArea : handleMarkAsArea,
+              icon: isArea ? '❌' : '📍',
+            },
             {
               label: 'Share (soon)',
               action: handleShare,
