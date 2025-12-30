@@ -97,7 +97,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
 
     // Build set of nodes to preserve positions for
     const nodesToPreserve = new Set<string>();
-    
+
     // Add manually moved nodes and their descendants
     const manuallyMovedWithDescendants = new Set<string>();
     const addDescendants = (nodeId: string) => {
@@ -276,7 +276,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       try {
         const previousNodes = JSON.parse(previousStoreNodesRef.current) as Array<{ id: string; expanded?: boolean; children?: number }>;
         const previousNodeMap = new Map(previousNodes.map(n => [n.id, n]));
-        
+
         // Helper to recursively find all visible descendants
         const getVisibleDescendantIds = (node: typeof storeNodes[0], visited = new Set<string>()): string[] => {
           if (visited.has(node.id)) return [];
@@ -290,13 +290,13 @@ function FlowCanvas({ className }: FolderCanvasProps) {
           }
           return ids;
         };
-        
+
         storeNodes.forEach(node => {
           const prevNode = previousNodeMap.get(node.id);
           if (prevNode) {
             // Always preserve the parent's position
             fixedNodeIds.add(node.id);
-            
+
             // If this node was expanded before, preserve all its children that were visible
             if (prevNode.expanded && node.children) {
               node.children.forEach(child => {
@@ -351,8 +351,9 @@ function FlowCanvas({ className }: FolderCanvasProps) {
 
     const nodesWithStorePositions = rfNodes.map(rfNode => {
       // Find node in store (including nested children)
+      // Use path verification to ensure we get the correct node
       const storeNode = findStoreNode(rfNode.id, rfNode.data?.path);
-      
+
       // If node has a stored position, always use it (preserves manually adjusted positions)
       if (storeNode && storeNode.position) {
         return {
@@ -360,7 +361,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
           position: storeNode.position,
         };
       }
-      
+
       // If no stored position, use the default from rfNode
       return rfNode;
     });
@@ -377,7 +378,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     // Check if this is just an expand/collapse operation (not initial load or stacked nodes)
     const isInitialLoad = previousStoreNodesRef.current === '';
     const isJustExpandCollapse = structureChanged && !isInitialLoad && !checkIfStacked(nodesWithStorePositions);
-    
+
     // Don't layout if:
     // 1. We just finished dragging (positions are being saved)
     // 2. Currently dragging
@@ -385,36 +386,90 @@ function FlowCanvas({ className }: FolderCanvasProps) {
     // NOT when only positions have changed (user dragging)
     const needsLayout = (structureChanged || checkIfStacked(nodesWithStorePositions)) && !isDraggingRef.current && !justFinishedDragRef.current;
 
-    // For expand/collapse, use simple relative positioning without Dagre
-    if (isJustExpandCollapse) {
-      // Build parent-to-children map
-      const parentToChildren = new Map<string, string[]>();
-      rfEdges.forEach(edge => {
-        if (!parentToChildren.has(edge.source)) {
-          parentToChildren.set(edge.source, []);
+    // Track which nodes have EVER been visible (have stored positions or were in previous render)
+    // This helps us identify truly new nodes vs nodes that were just collapsed/expanded
+    const nodesWithStoredPositions = new Set<string>();
+    const collectNodesWithPositions = (nodes: typeof storeNodes): void => {
+      for (const node of nodes) {
+        // If node has a stored position, it was visible before
+        if (node.position && (node.position.x !== 0 || node.position.y !== 0)) {
+          nodesWithStoredPositions.add(node.id);
         }
-        parentToChildren.get(edge.source)!.push(edge.target);
-      });
+        if (node.children) {
+          collectNodesWithPositions(node.children);
+        }
+      }
+    };
+    collectNodesWithPositions(storeNodes);
 
-      // Position newly visible children relative to their parent
+    // Also track which nodes were visible in the previous ReactFlow render
+    const previouslyVisibleInRender = new Set<string>();
+    if (previousStoreNodesRef.current !== '') {
+      try {
+        const previousNodes = JSON.parse(previousStoreNodesRef.current) as Array<{ id: string; expanded?: boolean }>;
+        const previousNodeMap = new Map(previousNodes.map(n => [n.id, n]));
+
+        // Helper to collect all visible node IDs from previous render
+        const collectVisibleIds = (nodes: typeof storeNodes, parentExpanded: boolean = true): void => {
+          for (const node of nodes) {
+            const prevNode = previousNodeMap.get(node.id);
+            const wasExpanded = prevNode?.expanded ?? false;
+
+            if (parentExpanded) {
+              previouslyVisibleInRender.add(node.id);
+              if (wasExpanded && node.children) {
+                collectVisibleIds(node.children, true);
+              }
+            }
+          }
+        };
+        collectVisibleIds(storeNodes, true);
+      } catch (e) {
+        // If parsing fails, assume no nodes were visible before
+      }
+    }
+
+    // Build parent-to-children map
+    const parentToChildren = new Map<string, string[]>();
+    rfEdges.forEach(edge => {
+      if (!parentToChildren.has(edge.source)) {
+        parentToChildren.set(edge.source, []);
+      }
+      parentToChildren.get(edge.source)!.push(edge.target);
+    });
+
+    // Get current node positions from ReactFlow state
+    const currentReactFlowNodes = getNodes();
+    const currentNodeMap = new Map(currentReactFlowNodes.map(n => [n.id, n]));
+
+    // CRITICAL FIX: For expand/collapse, preserve ALL current positions first
+    // Only position nodes that are truly newly visible and don't exist in current ReactFlow state
+    if (isJustExpandCollapse) {
+      // Count how many nodes actually need repositioning
+      let nodesNeedingPosition = 0;
       const positionedNodes = nodesWithStorePositions.map(node => {
         const storeNode = findStoreNode(node.id, node.data?.path);
-        const hasStoredPosition = storeNode && storeNode.position && 
+        const currentNode = currentNodeMap.get(node.id);
+        const hasStoredPosition = storeNode && storeNode.position &&
           (storeNode.position.x !== 0 || storeNode.position.y !== 0);
+        const wasVisibleInPreviousRender = previouslyVisibleInRender.has(node.id);
+        const currentPosition = currentNode?.position;
         const isManuallyMoved = manuallyMovedNodesRef.current.has(node.id);
-        
-        if (isManuallyMoved) {
-          const positionToUse = hasStoredPosition ? storeNode!.position : node.position;
-          if (positionToUse && (positionToUse.x !== 0 || positionToUse.y !== 0)) {
-            return {
-              ...node,
-              position: positionToUse,
-              targetPosition: Position.Left,
-              sourcePosition: Position.Right,
-            };
-          }
+
+        // CRITICAL RULE 1: If node exists in current ReactFlow, ALWAYS use its current position
+        // This is the most important rule - it preserves all currently visible nodes
+        // This ensures that when you drag nodes and then expand a folder, your dragged positions are preserved
+        if (currentNode && currentPosition && (currentPosition.x !== 0 || currentPosition.y !== 0)) {
+          return {
+            ...node,
+            position: currentPosition,
+            targetPosition: Position.Left,
+            sourcePosition: Position.Right,
+          };
         }
 
+        // Rule 2: If node has stored position, use it (for nodes not currently in ReactFlow)
+        // This ensures dragged positions persist for nodes that were collapsed
         if (hasStoredPosition) {
           return {
             ...node,
@@ -424,39 +479,54 @@ function FlowCanvas({ className }: FolderCanvasProps) {
           };
         }
 
-        // For newly visible children (not visible before), position them relative to parent
+        // Rule 3: If node was visible in previous render, keep its position from nodesWithStorePositions
+        // This preserves positions for nodes that were just collapsed/expanded
+        if (wasVisibleInPreviousRender && node.position && (node.position.x !== 0 || node.position.y !== 0)) {
+          return {
+            ...node,
+            position: node.position,
+            targetPosition: Position.Left,
+            sourcePosition: Position.Right,
+          };
+        }
+
+        // Rule 4: Node is newly visible and has no stored position - position it relative to parent
+        // This only happens for truly new nodes that have never been positioned
         const parentEdge = rfEdges.find(e => e.target === node.id);
         if (parentEdge) {
-          const parentNode = nodesWithStorePositions.find(n => n.id === parentEdge.source);
+          // Get parent position - check current state first, then store
+          const parentFromCurrent = currentNodeMap.get(parentEdge.source);
+          const parentFromStore = nodesWithStorePositions.find(n => n.id === parentEdge.source);
+          const parentNode = parentFromCurrent || parentFromStore;
+
           if (parentNode && parentNode.position) {
             const siblings = parentToChildren.get(parentEdge.source) || [];
             const siblingIndex = siblings.indexOf(node.id);
             const totalSiblings = siblings.length;
-            
-            // Position children to the right of parent, vertically centered
-            const parentX = parentNode.position.x + nodeWidth + 80; // 80px spacing
+
+            // Position children 80px to the right of parent
+            const parentX = parentNode.position.x + nodeWidth + 80;
             const parentY = parentNode.position.y;
             const verticalSpacing = 60;
             const totalHeight = (totalSiblings - 1) * verticalSpacing;
             const startY = parentY - totalHeight / 2;
-            
-            const newPosition = {
-              x: parentX,
-              y: startY + siblingIndex * verticalSpacing,
-            };
-            
+
             return {
               ...node,
-              position: newPosition,
+              position: {
+                x: parentX,
+                y: startY + siblingIndex * verticalSpacing,
+              },
               targetPosition: Position.Left,
               sourcePosition: Position.Right,
             };
           }
         }
 
-        // Fallback: keep existing position or use default
+        // Fallback: use current position or default
         return {
           ...node,
+          position: currentPosition || node.position || { x: 0, y: 0 },
           targetPosition: Position.Left,
           sourcePosition: Position.Right,
         };
@@ -465,27 +535,38 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       setNodesState(positionedNodes);
       setEdgesState(rfEdges);
 
+      // SIMPLE SAVE LOGIC: Only save positions for newly visible nodes that don't have stored positions
       positionedNodes.forEach((node) => {
-        // Use path verification to ensure we're updating the correct node
         const storeNode = findStoreNode(node.id, node.data?.path);
-        
         if (!storeNode || (node.data?.path && storeNode.path !== node.data.path)) {
           return;
         }
-        
-        const hasStoredPosition = storeNode.position && 
+
+        const hasStoredPosition = storeNode.position &&
           (storeNode.position.x !== 0 || storeNode.position.y !== 0);
+        const wasVisibleInPreviousRender = previouslyVisibleInRender.has(node.id);
         const isManuallyMoved = manuallyMovedNodesRef.current.has(node.id);
-        
-        if (!hasStoredPosition) {
+
+        // Only save if:
+        // 1. Node is truly newly visible (wasn't in previous render) AND doesn't have stored position, OR
+        // 2. Node is manually moved (to persist drag changes)
+        if (!wasVisibleInPreviousRender && !hasStoredPosition) {
+          // Truly newly visible node without stored position - save the calculated position
           updateNodePosition(node.id, node.position);
         } else if (isManuallyMoved) {
-          const dx = Math.abs(node.position.x - storeNode.position.x);
-          const dy = Math.abs(node.position.y - storeNode.position.y);
-          if (dx > 0.5 || dy > 0.5) {
+          // Manually moved node - always update to persist drag changes
+          if (hasStoredPosition) {
+            const dx = Math.abs(node.position.x - storeNode.position.x);
+            const dy = Math.abs(node.position.y - storeNode.position.y);
+            if (dx > 0.5 || dy > 0.5) {
+              updateNodePosition(node.id, node.position);
+            }
+          } else {
+            // No stored position yet, save it
             updateNodePosition(node.id, node.position);
           }
         }
+        // For all other cases, do NOTHING - positions are already stored or should remain unchanged
       });
 
       previousStoreNodesRef.current = nodeSignature;
@@ -493,22 +574,50 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       // For initial load or stacked nodes, use full Dagre layout
       const isLargeTree = nodesWithStorePositions.length > 20;
       const preservePositions = !checkIfStacked(nodesWithStorePositions) && !structureChanged && !isLargeTree;
-      
+
+      // Get current ReactFlow positions to preserve them
+      const currentReactFlowNodes = getNodes();
+      const currentNodeMap = new Map(currentReactFlowNodes.map(n => [n.id, n]));
+
       const layoutedNodes = applyTreeLayout(
-        nodesWithStorePositions, 
-        rfEdges, 
-        preservePositions, 
+        nodesWithStorePositions,
+        rfEdges,
+        preservePositions,
         structureChanged ? fixedNodeIds : undefined
       );
-      setNodesState(layoutedNodes);
-      setEdgesState(rfEdges);
 
-      layoutedNodes.forEach((node) => {
-        updateNodePosition(node.id, node.position);
+      // CRITICAL: Preserve current ReactFlow positions for all nodes that are currently visible
+      // Only use Dagre positions for nodes that don't exist in current ReactFlow state
+      const finalNodes = layoutedNodes.map(node => {
+        const currentNode = currentNodeMap.get(node.id);
+        if (currentNode && currentNode.position && (currentNode.position.x !== 0 || currentNode.position.y !== 0)) {
+          // Node is currently visible - preserve its current position
+          return {
+            ...node,
+            position: currentNode.position,
+          };
+        }
+        // Node is not currently visible (newly visible) - use Dagre position
+        return node;
       });
 
+      setNodesState(finalNodes);
+      setEdgesState(rfEdges);
+
+      // Only save positions for nodes that were positioned by Dagre (not currently visible)
+      // Never overwrite positions for currently visible nodes
+      finalNodes.forEach((node) => {
+        const currentNode = currentNodeMap.get(node.id);
+        // Only save if node is not currently visible (it's newly visible)
+        if (!currentNode) {
+          updateNodePosition(node.id, node.position);
+        }
+      });
+
+      // Update signature AFTER positions are saved to ensure next render uses new positions
       previousStoreNodesRef.current = nodeSignature;
 
+      // Only fit view on initial load, not when just expanding/collapsing
       if (isInitialLoad && !preservePositions) {
         requestAnimationFrame(() => {
           setTimeout(() => {
@@ -521,7 +630,7 @@ function FlowCanvas({ className }: FolderCanvasProps) {
       setNodesState(nodesWithStorePositions);
       setEdgesState(rfEdges);
     }
-  }, [storeNodes, highlightedSet, setNodesState, setEdgesState, applyTreeLayout, updateNodePosition, fitView]);
+  }, [storeNodes, highlightedSet, setNodesState, setEdgesState, applyTreeLayout, updateNodePosition, fitView, getNodes]);
 
   // Handle node drag - track dragging state and initial positions
   const onNodeDrag = useCallback(
@@ -581,13 +690,16 @@ function FlowCanvas({ className }: FolderCanvasProps) {
           currentNodes.forEach(curr => {
             const stored = storedPositions.get(curr.id);
             const currPath = curr.data?.path;
-            
+
+            // Verify we're working with the correct node by checking path if available
             if (stored && stored.path && currPath && stored.path !== currPath) {
+              // Path mismatch - this shouldn't happen with unique IDs, but skip to be safe
               console.warn(`Path mismatch for node ${curr.id}: stored=${stored.path}, current=${currPath}`);
               return;
             }
-            
+
             if (stored) {
+              // Node has a stored position - check if it moved
               const dx = Math.abs(curr.position.x - stored.x);
               const dy = Math.abs(curr.position.y - stored.y);
               if (dx > 0.5 || dy > 0.5) {
@@ -595,11 +707,14 @@ function FlowCanvas({ className }: FolderCanvasProps) {
                 manuallyMovedNodesRef.current.add(curr.id);
               }
             } else {
+              // Node doesn't have a stored position yet - save it and mark as manually moved
+              // This handles cases where nodes are dragged before they have positions saved
               updateNodePosition(curr.id, curr.position);
               manuallyMovedNodesRef.current.add(curr.id);
             }
           });
 
+          // Clear the flag after a delay to allow positions to be saved
           setTimeout(() => {
             justFinishedDragRef.current = false;
           }, 200);
@@ -779,4 +894,3 @@ export default function FolderCanvas({ className }: FolderCanvasProps) {
     </ReactFlowProvider>
   );
 }
-
