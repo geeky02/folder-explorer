@@ -71,8 +71,8 @@ const FolderNode = memo(function FolderNode({
 
   const isRootFolder = rootFolderIds.has(id);
   const isArea = areas.some((area) => area.id === id);
-  const canMarkAsArea = !isArea; // Allow any folder (including root) to be marked as Area
-  const canUnmarkAsArea = isArea; // Allow any Area to be unmarked
+  const canMarkAsArea = !isArea;
+  const canUnmarkAsArea = isArea && !isRootFolder; // Root folders must remain Areas
 
   const handleMarkAsArea = useCallback(() => {
     markAsArea(id);
@@ -90,8 +90,8 @@ const FolderNode = memo(function FolderNode({
         onContextMenu={handleRightClick}
         onClick={() => hasChildren && toggleNodeExpanded(id)}
         className={`group relative w-[140px] rounded-lg border bg-white px-2.5 py-2 shadow-sm transition-all ${selected
-            ? 'border-[var(--color-accent)] shadow-md'
-            : 'border-gray-200'
+          ? 'border-[var(--color-accent)] shadow-md'
+          : 'border-gray-200'
           } ${data.isHighlighted
             ? 'ring-2 ring-[var(--color-accent)]/70 ring-offset-1'
             : 'ring-0'
@@ -129,11 +129,10 @@ const FolderNode = memo(function FolderNode({
                     handleMarkAsArea();
                   }
                 }}
-                className={`rounded border p-0.5 flex-shrink-0 transition-colors ${
-                  isArea
+                className={`rounded border p-0.5 flex-shrink-0 transition-colors ${isArea
                     ? 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'
                     : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50 opacity-0 group-hover:opacity-100'
-                }`}
+                  }`}
                 title={isArea ? 'Unmark as Area' : 'Mark as Area'}
               >
                 {isArea ? (

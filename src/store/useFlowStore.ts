@@ -177,21 +177,10 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     if (!folder) return;
 
     // Check if Area already exists
-    const existingArea = state.areas.find((area) => area.id === folderId);
-    if (existingArea) return;
+    if (state.areas.some((area) => area.id === folderId)) return;
 
-    // Collect all descendant node IDs
-    const allNodeIds = collectAllDescendantIds(folder);
-
-    // Create new Area
-    const newArea: Area = {
-      id: folderId,
-      name: `${folder.name} Area`,
-      nodes: allNodeIds,
-      color: folder.color || '#e0e0e0',
-      position: folder.position,
-      size: { width: 200, height: 100 }, // Default size, will be calculated later
-    };
+    // Create new Area using helper
+    const newArea = createAreaFromNode(folder);
 
     set((current) => ({
       areas: [...current.areas, newArea],
@@ -433,9 +422,13 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       const newRootFolderIds = new Set(state.rootFolderIds);
       newRootFolderIds.add(newNode.id);
 
+      // Automatically create Area for root folder
+      const newArea = createAreaFromNode(newNode);
+
       return {
         nodes: [...state.nodes, newNode],
         rootFolderIds: newRootFolderIds,
+        areas: [...state.areas, newArea],
       };
     }),
   loadConnectorRoot: async (connectorId, path) => {
@@ -477,9 +470,13 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       // Track root folder IDs
       const rootIds = new Set(nodes.map((node) => node.id));
 
+      // Automatically create Areas for initial root nodes
+      const newAreas = nodes.map((node) => createAreaFromNode(node));
+
       set({
         nodes,
         rootFolderIds: rootIds,
+        areas: newAreas,
         activeConnector: connectorId,
         isLoadingNodes: false,
       });
@@ -489,9 +486,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         const directory = await retryFetch(() => fetchDirectory(), 2, 500);
         const nodes = [convertDirectoryResponse(directory, true)]; // true = isRoot
         const rootIds = new Set(nodes.map((node) => node.id));
+        const newAreas = nodes.map((node) => createAreaFromNode(node));
+
         set({
           nodes,
           rootFolderIds: rootIds,
+          areas: newAreas,
           activeConnector: "local-fs",
           isLoadingNodes: false,
         });
@@ -611,15 +611,26 @@ function findNodeById(nodes: FolderNode[], id: string): FolderNode | null {
   return null;
 }
 
+function createAreaFromNode(node: FolderNode): Area {
+  return {
+    id: node.id,
+    name: `${node.name} Area`,
+    nodes: collectAllDescendantIds(node),
+    color: node.color || "#e0e0e0",
+    position: node.position,
+    size: { width: 200, height: 100 }, // Default size, will be calculated later
+  };
+}
+
 function collectAllDescendantIds(node: FolderNode): string[] {
   const ids: string[] = [node.id]; // Include the node itself
-  
+
   if (node.children && node.children.length > 0) {
     node.children.forEach((child) => {
       ids.push(...collectAllDescendantIds(child));
     });
   }
-  
+
   return ids;
 }
 
@@ -658,8 +669,8 @@ function convertDirectoryResponse(
     position: dir.position || { x: 0, y: 0 },
     children: dir.children
       ? dir.children.map((child) =>
-          convertDirectoryResponse(child, false, depth + 1)
-        )
+        convertDirectoryResponse(child, false, depth + 1)
+      )
       : [],
     expanded: shouldExpand, // Fully expand all nodes
     hasChildren: Boolean(dir.children && dir.children.length > 0),
